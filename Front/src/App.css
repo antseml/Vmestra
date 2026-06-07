@@ -562,6 +562,11 @@ time {
   box-shadow: none;
 }
 
+.idea-card.archived {
+  opacity: 0.72;
+  background: var(--panel-soft);
+}
+
 .idea-card h3 {
   margin: 8px 0 0;
   font-size: 18px;
@@ -584,6 +589,51 @@ time {
   justify-items: end;
   gap: 8px;
   min-width: 128px;
+}
+
+.idea-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.idea-actions.compact {
+  justify-content: flex-end;
+  max-width: 170px;
+}
+
+.idea-actions.compact .text-button {
+  font-size: 12px;
+}
+
+.idea-edit-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.idea-edit-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.idea-edit-form input,
+.idea-edit-form textarea {
+  width: min(100%, 520px);
+}
+
+.archive-toggle {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 12px;
+}
+
+.secondary-button.active {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .similar-note {

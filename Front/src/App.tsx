@@ -29,6 +29,13 @@ import {
 } from './mock/vmestraData'
 import { SpacesScreen } from './screens/SpacesScreen'
 
+type IdeaActions = {
+  onArchive: (idea: Idea) => void
+  onEdit: (idea: Idea, draft: { title: string; note: string }) => void
+  onRestore: (idea: Idea) => void
+  onSortOut: (idea: Idea) => void
+}
+
 function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [activeView, setActiveView] = useState<View>('spaces')
@@ -47,18 +54,21 @@ function App() {
   const [isSavingIdea, setIsSavingIdea] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [quickAddNotice, setQuickAddNotice] = useState<string | null>(null)
+  const [ideaActionNotice, setIdeaActionNotice] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [authRequired, setAuthRequired] = useState(isBackendDataSource && !authClient.hasToken())
 
   const selectedSpace = spaces.find((space) => space.id === selectedSpaceId) ?? spaces[0]
   const inboxIdeas = spaceIdeas.filter((idea) => idea.status === 'inbox')
   const plannedIdeas = spaceIdeas.filter((idea) => idea.status === 'planned')
+  const activeLibraryIdeas = spaceIdeas.filter((idea) => idea.status !== 'inbox' && idea.status !== 'archived')
+  const archivedIdeas = spaceIdeas.filter((idea) => idea.status === 'archived')
   const selectedSpaceWithLiveStats = selectedSpace
     ? {
         ...selectedSpace,
         stats: {
           inbox: inboxIdeas.length,
-          ideas: spaceIdeas.length,
+          ideas: spaceIdeas.filter((idea) => idea.status !== 'archived').length,
           planned: plannedIdeas.length,
           memories: spaceHistory.length,
         },
@@ -131,7 +141,7 @@ function App() {
 
       try {
         const [nextIdeas, nextFolders, nextCategories, nextPlan, nextHistory, nextRecommendations] = await Promise.all([
-          dataClient.getIdeas(selectedSpace.id),
+          dataClient.getIdeas(selectedSpace.id, { includeArchived: true }),
           dataClient.getFolders(selectedSpace.id),
           dataClient.getCategories(selectedSpace.id),
           dataClient.getPlan(selectedSpace.id),
@@ -215,6 +225,90 @@ function App() {
     } finally {
       setIsSavingIdea(false)
     }
+  }
+
+  function replaceIdea(updatedIdea: Idea) {
+    setSpaceIdeas((currentIdeas) =>
+      currentIdeas.some((idea) => idea.id === updatedIdea.id)
+        ? currentIdeas.map((idea) => (idea.id === updatedIdea.id ? updatedIdea : idea))
+        : [updatedIdea, ...currentIdeas],
+    )
+  }
+
+  async function sortOutIdea(idea: Idea) {
+    if (!selectedSpace?.id) return
+    setIdeaActionNotice(null)
+
+    try {
+      replaceIdea(await dataClient.updateIdea(selectedSpace.id, idea.id, { state: 'Active' }))
+      setIdeaActionNotice('Идея перемещена из входящих в копилку.')
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        setAuthRequired(true)
+        return
+      }
+      setIdeaActionNotice('Не удалось разобрать идею. Попробуйте ещё раз.')
+    }
+  }
+
+  async function saveIdeaEdit(idea: Idea, draft: { title: string; note: string }) {
+    if (!selectedSpace?.id) return
+    setIdeaActionNotice(null)
+
+    try {
+      replaceIdea(
+        await dataClient.updateIdea(selectedSpace.id, idea.id, {
+          title: draft.title.trim() || idea.title,
+          description: draft.note.trim(),
+        }),
+      )
+      setIdeaActionNotice('Идея обновлена.')
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        setAuthRequired(true)
+        return
+      }
+      setIdeaActionNotice('Не удалось сохранить изменения.')
+    }
+  }
+
+  async function archiveIdea(idea: Idea) {
+    if (!selectedSpace?.id) return
+    setIdeaActionNotice(null)
+
+    try {
+      replaceIdea(await dataClient.archiveIdea(selectedSpace.id, idea.id))
+      setIdeaActionNotice('Идея отправлена в архив.')
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        setAuthRequired(true)
+        return
+      }
+      setIdeaActionNotice('Не удалось архивировать идею.')
+    }
+  }
+
+  async function restoreIdea(idea: Idea) {
+    if (!selectedSpace?.id) return
+    setIdeaActionNotice(null)
+
+    try {
+      replaceIdea(await dataClient.restoreIdea(selectedSpace.id, idea.id))
+      setIdeaActionNotice('Идея вернулась в копилку.')
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        setAuthRequired(true)
+        return
+      }
+      setIdeaActionNotice('Не удалось вернуть идею.')
+    }
+  }
+
+  const ideaActions: IdeaActions = {
+    onArchive: archiveIdea,
+    onEdit: saveIdeaEdit,
+    onRestore: restoreIdea,
+    onSortOut: sortOutIdea,
   }
 
   function completeGuidedTour() {
@@ -324,18 +418,36 @@ function App() {
             inboxIdeas={inboxIdeas}
             plannedIdeas={plannedIdeas}
             spaceIdeas={spaceIdeas}
+            ideaActions={ideaActions}
+            ideaActionNotice={ideaActionNotice}
             recommendations={recommendations}
             setActiveView={setActiveView}
           />
         )}
 
-        {activeView === 'inbox' && <InboxScreen ideas={inboxIdeas} />}
-        {activeView === 'library' && <LibraryScreen ideas={spaceIdeas} folders={folders} categories={categories} />}
+        {activeView === 'inbox' && (
+          <InboxScreen ideas={inboxIdeas} ideaActions={ideaActions} ideaActionNotice={ideaActionNotice} />
+        )}
+        {activeView === 'library' && (
+          <LibraryScreen
+            archivedIdeas={archivedIdeas}
+            categories={categories}
+            folders={folders}
+            ideaActions={ideaActions}
+            ideaActionNotice={ideaActionNotice}
+            ideas={activeLibraryIdeas}
+          />
+        )}
         {activeView === 'recommendations' && (
           <RecommendationsScreen selectedSpace={selectedSpaceWithLiveStats} recommendations={recommendations} />
         )}
         {activeView === 'planning' && (
-          <PlanningScreen selectedSpace={selectedSpaceWithLiveStats} plannedIdeas={plannedIdeas} spaceIdeas={spaceIdeas} />
+          <PlanningScreen
+            ideaActions={ideaActions}
+            plannedIdeas={plannedIdeas}
+            selectedSpace={selectedSpaceWithLiveStats}
+            spaceIdeas={spaceIdeas}
+          />
         )}
         {activeView === 'calendar' && <CalendarScreen plannedIdeas={plannedIdeas} />}
         {activeView === 'history' && <HistoryScreen entries={spaceHistory} />}
@@ -494,6 +606,8 @@ function SpaceScreen({
   inboxIdeas,
   plannedIdeas,
   spaceIdeas,
+  ideaActions,
+  ideaActionNotice,
   recommendations,
   setActiveView,
 }: {
@@ -507,9 +621,14 @@ function SpaceScreen({
   inboxIdeas: Idea[]
   plannedIdeas: Idea[]
   spaceIdeas: Idea[]
+  ideaActions: IdeaActions
+  ideaActionNotice: string | null
   recommendations: Recommendation[]
   setActiveView: (value: View) => void
 }) {
+  const nonArchivedIdeas = spaceIdeas.filter((idea) => idea.status !== 'archived')
+  const recentIdeas = nonArchivedIdeas.slice(0, 5)
+
   return (
     <div className="space-screen">
       <section className="section-band quick-band" data-tour-id="quick-add">
@@ -530,7 +649,7 @@ function SpaceScreen({
 
       <section className="metrics-row">
         <Metric icon={Inbox} label="Во входящих" value={inboxIdeas.length} onClick={() => setActiveView('inbox')} />
-        <Metric icon={Archive} label="В копилке" value={spaceIdeas.length} onClick={() => setActiveView('library')} />
+        <Metric icon={Archive} label="В копилке" value={nonArchivedIdeas.length} onClick={() => setActiveView('library')} />
         <Metric icon={CalendarDays} label="В планах" value={plannedIdeas.length} onClick={() => setActiveView('planning')} />
         <Metric icon={History} label="Историй" value={selectedSpace.stats.memories} onClick={() => setActiveView('history')} />
       </section>
@@ -546,7 +665,8 @@ function SpaceScreen({
               Все папки
             </button>
           </div>
-          <IdeaList ideas={spaceIdeas.slice(0, 5)} />
+          {ideaActionNotice && <p className="form-note">{ideaActionNotice}</p>}
+          <IdeaList actions={ideaActions} ideas={recentIdeas} />
         </section>
 
         <aside className="section-band side-band">
@@ -559,7 +679,15 @@ function SpaceScreen({
   )
 }
 
-function InboxScreen({ ideas }: { ideas: Idea[] }) {
+function InboxScreen({
+  ideas,
+  ideaActions,
+  ideaActionNotice,
+}: {
+  ideas: Idea[]
+  ideaActions: IdeaActions
+  ideaActionNotice: string | null
+}) {
   return (
     <section className="section-band full-band">
       <div className="section-title">
@@ -569,12 +697,35 @@ function InboxScreen({ ideas }: { ideas: Idea[] }) {
         </div>
         <span className="soft-badge">{ideas.length} ждут уточнения</span>
       </div>
-      <IdeaList emptyText="Во входящих пока тихо. Новые быстрые идеи будут появляться здесь." ideas={ideas} inboxMode />
+      {ideaActionNotice && <p className="form-note">{ideaActionNotice}</p>}
+      <IdeaList
+        actions={ideaActions}
+        emptyText="Во входящих пока тихо. Новые быстрые идеи будут появляться здесь."
+        ideas={ideas}
+        inboxMode
+      />
     </section>
   )
 }
 
-function LibraryScreen({ ideas, folders, categories }: { ideas: Idea[]; folders: Folder[]; categories: string[] }) {
+function LibraryScreen({
+  archivedIdeas,
+  categories,
+  folders,
+  ideaActions,
+  ideaActionNotice,
+  ideas,
+}: {
+  archivedIdeas: Idea[]
+  categories: string[]
+  folders: Folder[]
+  ideaActions: IdeaActions
+  ideaActionNotice: string | null
+  ideas: Idea[]
+}) {
+  const [showArchived, setShowArchived] = useState(false)
+  const visibleIdeas = showArchived ? [...ideas, ...archivedIdeas] : ideas
+
   return (
     <div className="screen-grid">
       <section className="section-band main-band">
@@ -594,7 +745,17 @@ function LibraryScreen({ ideas, folders, categories }: { ideas: Idea[]; folders:
           ))}
         </div>
         {folders.length === 0 && <EmptyState text="Папки появятся здесь, когда в пространстве будет первый справочник." />}
-        <IdeaList ideas={ideas} />
+        <div className="archive-toggle">
+          <button
+            className={showArchived ? 'secondary-button active' : 'secondary-button'}
+            type="button"
+            onClick={() => setShowArchived((value) => !value)}
+          >
+            {showArchived ? 'Скрыть архив' : `Показать архив (${archivedIdeas.length})`}
+          </button>
+        </div>
+        {ideaActionNotice && <p className="form-note">{ideaActionNotice}</p>}
+        <IdeaList actions={ideaActions} ideas={visibleIdeas} />
       </section>
 
       <aside className="section-band side-band">
@@ -649,10 +810,12 @@ function buildPlanStartsAt(date: string, time: string) {
 }
 
 function PlanningScreen({
+  ideaActions,
   selectedSpace,
   plannedIdeas,
   spaceIdeas,
 }: {
+  ideaActions: IdeaActions
   selectedSpace: Space
   plannedIdeas: Idea[]
   spaceIdeas: Idea[]
@@ -727,7 +890,11 @@ function PlanningScreen({
 
       <aside className="section-band side-band">
         <span className="eyebrow">Уже в планах</span>
-        <IdeaList emptyText="Пока ничего не запланировано. Идеи всё равно остаются доступными в копилке." ideas={plannedIdeas} />
+        <IdeaList
+          actions={ideaActions}
+          emptyText="Пока ничего не запланировано. Идеи всё равно остаются доступными в копилке."
+          ideas={plannedIdeas}
+        />
       </aside>
     </div>
   )
@@ -914,21 +1081,74 @@ function RecommendationCards({
   )
 }
 
-function IdeaList({ ideas, inboxMode = false, emptyText }: { ideas: Idea[]; inboxMode?: boolean; emptyText?: string }) {
+function IdeaList({
+  actions,
+  ideas,
+  inboxMode = false,
+  emptyText,
+}: {
+  actions?: IdeaActions
+  ideas: Idea[]
+  inboxMode?: boolean
+  emptyText?: string
+}) {
+  const [editingIdeaId, setEditingIdeaId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState({ title: '', note: '' })
+
+  function startEditing(idea: Idea) {
+    setEditingIdeaId(idea.id)
+    setEditDraft({ title: idea.title, note: idea.note })
+  }
+
+  function saveEdit(idea: Idea) {
+    actions?.onEdit(idea, editDraft)
+    setEditingIdeaId(null)
+  }
+
   return (
     <div className="idea-list">
       {ideas.length === 0 ? (
         <EmptyState text={emptyText ?? 'Идей пока нет. Быстрое сохранение поможет начать с короткого текста.'} />
       ) : (
         ideas.map((idea) => (
-          <article className="idea-card" key={idea.id}>
+          <article className={idea.status === 'archived' ? 'idea-card archived' : 'idea-card'} key={idea.id}>
             <div>
               <span className="idea-folder">
                 <FolderOpen size={14} />
                 {idea.folder}
               </span>
-              <h3>{idea.title}</h3>
-              <p>{idea.note}</p>
+              {editingIdeaId === idea.id ? (
+                <div className="idea-edit-form">
+                  <label>
+                    Название
+                    <input
+                      value={editDraft.title}
+                      onChange={(event) => setEditDraft((draft) => ({ ...draft, title: event.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Описание
+                    <textarea
+                      rows={3}
+                      value={editDraft.note}
+                      onChange={(event) => setEditDraft((draft) => ({ ...draft, note: event.target.value }))}
+                    />
+                  </label>
+                  <div className="idea-actions">
+                    <button className="primary-button" type="button" onClick={() => saveEdit(idea)}>
+                      Сохранить
+                    </button>
+                    <button className="text-button" type="button" onClick={() => setEditingIdeaId(null)}>
+                      Отмена
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <h3>{idea.title}</h3>
+                  <p>{idea.note}</p>
+                </>
+              )}
               <div className="tag-row">
                 {idea.tags.map((tag) => (
                   <span className="tag" key={tag}>
@@ -939,9 +1159,39 @@ function IdeaList({ ideas, inboxMode = false, emptyText }: { ideas: Idea[]; inbo
             </div>
             <div className="idea-side">
               <span className="status-pill">
-                {idea.status === 'planned' ? 'Запланировано' : inboxMode ? 'Уточнить' : idea.category}
+                {idea.status === 'archived'
+                  ? 'Архив'
+                  : idea.status === 'planned'
+                    ? 'Запланировано'
+                    : inboxMode
+                      ? 'Уточнить'
+                      : idea.category}
               </span>
               {idea.similarIdeaIds && <span className="similar-note">есть похожая внутри пространства</span>}
+              {actions && (
+                <div className="idea-actions compact">
+                  {idea.status === 'inbox' && (
+                    <button className="text-button" type="button" onClick={() => actions.onSortOut(idea)}>
+                      Разобрать
+                    </button>
+                  )}
+                  {idea.status !== 'archived' && (
+                    <>
+                      <button className="text-button" type="button" onClick={() => startEditing(idea)}>
+                        Изменить
+                      </button>
+                      <button className="text-button" type="button" onClick={() => actions.onArchive(idea)}>
+                        Архивировать
+                      </button>
+                    </>
+                  )}
+                  {idea.status === 'archived' && (
+                    <button className="text-button" type="button" onClick={() => actions.onRestore(idea)}>
+                      Вернуть
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </article>
         ))

@@ -5,7 +5,11 @@ export const API_CONTRACT_NOTES = {
     'GET /api/spaces/my',
     'GET /api/spaces/{spaceId}/members',
     'GET /api/spaces/{spaceId}/ideas',
+    'GET /api/spaces/{spaceId}/ideas/{ideaId}',
     'POST /api/spaces/{spaceId}/ideas',
+    'PATCH /api/spaces/{spaceId}/ideas/{ideaId}',
+    'POST /api/spaces/{spaceId}/ideas/{ideaId}/archive',
+    'POST /api/spaces/{spaceId}/ideas/{ideaId}/restore',
     'GET /api/spaces/{spaceId}/folders',
     'GET /api/spaces/{spaceId}/tags',
     'PATCH /api/spaces/{spaceId}/tags/{tagId}',
@@ -43,6 +47,17 @@ export type ApiTagSource = 'User' | 'System'
 
 export type CreateIdeaRequest = {
   text: string
+}
+
+export type UpdateIdeaRequest = {
+  text?: string
+  title?: string | null
+  description?: string | null
+  folderId?: string | null
+  categoryId?: string | null
+  tagIds?: string[]
+  state?: ApiIdeaState
+  isRecurring?: boolean
 }
 
 export type UpdateScheduledIdeaRequest = {

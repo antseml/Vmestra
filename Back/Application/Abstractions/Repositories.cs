@@ -32,7 +32,9 @@ public interface IIdeaRepository
     IReadOnlyCollection<Idea> GetIdeas(Guid spaceId, Guid? folderId, Guid? tagId, Guid? categoryId, IdeaState? state, bool includeArchived);
     Idea? GetIdea(Guid spaceId, Guid ideaId);
     Idea? CreateIdea(Guid spaceId, CreateIdeaRequest request, Guid createdByUserId);
-    Idea? UpdateIdea(Guid spaceId, Guid ideaId, UpdateIdeaRequest request);
+    Idea? UpdateIdea(Guid spaceId, Guid ideaId, UpdateIdeaRequest request, Guid updatedByUserId);
+    Idea? ArchiveIdea(Guid spaceId, Guid ideaId, Guid archivedByUserId);
+    Idea? RestoreIdea(Guid spaceId, Guid ideaId, Guid restoredByUserId);
     void SetIdeaState(Guid spaceId, Guid ideaId, IdeaState state);
 }
 

@@ -64,6 +64,10 @@ public static class VmestraEndpoints
             currentUser.GetUserId(principal) is { } userId ? service.GetIdea(userId, spaceId, ideaId).ToHttpResult() : Results.Unauthorized());
         ideas.MapPatch("/{ideaId:guid}", (IdeaService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid ideaId, UpdateIdeaRequest request) =>
             currentUser.GetUserId(principal) is { } userId ? service.UpdateIdea(userId, spaceId, ideaId, request).ToHttpResult() : Results.Unauthorized());
+        ideas.MapPost("/{ideaId:guid}/archive", (IdeaService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid ideaId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.ArchiveIdea(userId, spaceId, ideaId).ToHttpResult() : Results.Unauthorized());
+        ideas.MapPost("/{ideaId:guid}/restore", (IdeaService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid ideaId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.RestoreIdea(userId, spaceId, ideaId).ToHttpResult() : Results.Unauthorized());
 
         ideas.MapGet("/{ideaId:guid}/comments", (CommentService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid ideaId) =>
             currentUser.GetUserId(principal) is { } userId ? service.GetComments(userId, spaceId, ideaId).ToHttpResult() : Results.Unauthorized());

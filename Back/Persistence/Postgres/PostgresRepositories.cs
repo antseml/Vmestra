@@ -168,7 +168,7 @@ public sealed class PostgresIdeaRepository(VmestraDbContext db, IHistoryReposito
         return GetIdea(spaceId, idea.Id);
     }
 
-    public Idea? UpdateIdea(Guid spaceId, Guid ideaId, UpdateIdeaRequest request)
+    public Idea? UpdateIdea(Guid spaceId, Guid ideaId, UpdateIdeaRequest request, Guid updatedByUserId)
     {
         var idea = db.Ideas.Include(value => value.IdeaTags).SingleOrDefault(value => value.SpaceId == spaceId && value.Id == ideaId);
         if (idea is null) return null;
@@ -189,7 +189,29 @@ public sealed class PostgresIdeaRepository(VmestraDbContext db, IHistoryReposito
         }
         idea.UpdatedAt = DateTimeOffset.UtcNow;
         db.SaveChanges();
-        history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, idea.CreatedByUserId, "Идея обновлена", null, null, DateTimeOffset.UtcNow), idea.CreatedByUserId);
+        history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, updatedByUserId, "Идея обновлена", null, null, DateTimeOffset.UtcNow), updatedByUserId);
+        return GetIdea(spaceId, ideaId);
+    }
+
+    public Idea? ArchiveIdea(Guid spaceId, Guid ideaId, Guid archivedByUserId)
+    {
+        var idea = db.Ideas.Include(value => value.IdeaTags).SingleOrDefault(value => value.SpaceId == spaceId && value.Id == ideaId);
+        if (idea is null) return null;
+        idea.State = IdeaState.Archived;
+        idea.UpdatedAt = DateTimeOffset.UtcNow;
+        db.SaveChanges();
+        history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, archivedByUserId, "Идея архивирована", null, null, DateTimeOffset.UtcNow), archivedByUserId);
+        return GetIdea(spaceId, ideaId);
+    }
+
+    public Idea? RestoreIdea(Guid spaceId, Guid ideaId, Guid restoredByUserId)
+    {
+        var idea = db.Ideas.Include(value => value.IdeaTags).SingleOrDefault(value => value.SpaceId == spaceId && value.Id == ideaId);
+        if (idea is null) return null;
+        idea.State = IdeaState.Active;
+        idea.UpdatedAt = DateTimeOffset.UtcNow;
+        db.SaveChanges();
+        history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, restoredByUserId, "Идея возвращена", null, null, DateTimeOffset.UtcNow), restoredByUserId);
         return GetIdea(spaceId, ideaId);
     }
 

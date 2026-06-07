@@ -214,7 +214,7 @@ public sealed class InMemoryIdeaRepository(InMemoryVmestraDatabase database, IHi
         }
     }
 
-    public Idea? UpdateIdea(Guid spaceId, Guid ideaId, UpdateIdeaRequest request)
+    public Idea? UpdateIdea(Guid spaceId, Guid ideaId, UpdateIdeaRequest request, Guid updatedByUserId)
     {
         lock (database.Gate)
         {
@@ -238,7 +238,33 @@ public sealed class InMemoryIdeaRepository(InMemoryVmestraDatabase database, IHi
             };
 
             database.Ideas[index] = updated;
-            history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, updated.CreatedByUserId, "Идея обновлена", null, null, DateTimeOffset.UtcNow), updated.CreatedByUserId);
+            history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, updatedByUserId, "Идея обновлена", null, null, DateTimeOffset.UtcNow), updatedByUserId);
+            return updated;
+        }
+    }
+
+    public Idea? ArchiveIdea(Guid spaceId, Guid ideaId, Guid archivedByUserId)
+    {
+        lock (database.Gate)
+        {
+            var index = database.Ideas.FindIndex(idea => idea.SpaceId == spaceId && idea.Id == ideaId);
+            if (index < 0) return null;
+            var updated = database.Ideas[index] with { State = IdeaState.Archived, UpdatedAt = DateTimeOffset.UtcNow };
+            database.Ideas[index] = updated;
+            history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, archivedByUserId, "Идея архивирована", null, null, DateTimeOffset.UtcNow), archivedByUserId);
+            return updated;
+        }
+    }
+
+    public Idea? RestoreIdea(Guid spaceId, Guid ideaId, Guid restoredByUserId)
+    {
+        lock (database.Gate)
+        {
+            var index = database.Ideas.FindIndex(idea => idea.SpaceId == spaceId && idea.Id == ideaId);
+            if (index < 0) return null;
+            var updated = database.Ideas[index] with { State = IdeaState.Active, UpdatedAt = DateTimeOffset.UtcNow };
+            database.Ideas[index] = updated;
+            history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, restoredByUserId, "Идея возвращена", null, null, DateTimeOffset.UtcNow), restoredByUserId);
             return updated;
         }
     }

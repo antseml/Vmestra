@@ -1,6 +1,7 @@
 ﻿import type { ApiIdeaState, ApiScheduledIdeaState, ApiSpaceKind, CreateIdeaRequest } from './apiContract'
 import { AuthRequiredError, authClient, getAuthToken, handleUnauthorized } from './authClient'
 import type { DataClient } from './dataClient'
+import type { UpdateIdeaRequest } from './apiContract'
 import type { Folder, HistoryEntry, Idea, Member, Recommendation, Space, SpaceKind } from '../mock/vmestraData'
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -142,6 +143,7 @@ function mapIdeaStatus(state: ApiIdeaState | ApiScheduledIdeaState | undefined):
   if (state === 'Inbox') return 'inbox'
   if (state === 'Planned') return 'planned'
   if (state === 'Experienced') return 'memory'
+  if (state === 'Archived') return 'archived'
   return 'saved'
 }
 
@@ -275,6 +277,18 @@ async function getScheduledIdeas(spaceId: string, range?: { from?: string; to?: 
   return request<ApiScheduledIdea[]>(`/api/spaces/${spaceId}/plan${suffix}`)
 }
 
+function buildIdeasPath(spaceId: string, options?: { includeArchived?: boolean }) {
+  const params = new URLSearchParams()
+  if (options?.includeArchived) params.set('includeArchived', 'true')
+  const suffix = params.size ? `?${params.toString()}` : ''
+  return `/api/spaces/${spaceId}/ideas${suffix}`
+}
+
+async function mapSingleIdea(spaceId: string, idea: ApiIdea) {
+  const [refs, plan] = await Promise.all([getSpaceReferenceData(spaceId), getScheduledIdeas(spaceId)])
+  return mapIdea(idea, { ...refs, plan })
+}
+
 export const backendClient: DataClient = {
   async getCurrentUser() {
     return userToMember(await authClient.me(), 'Admin')
@@ -313,14 +327,17 @@ export const backendClient: DataClient = {
     ])
     return members.map((member) => mapMember(member, usersById))
   },
-  async getIdeas(spaceId: string) {
+  async getIdeas(spaceId: string, options) {
     const [ideas, refs, plan] = await Promise.all([
-      request<ApiIdea[]>(`/api/spaces/${spaceId}/ideas`),
+      request<ApiIdea[]>(buildIdeasPath(spaceId, options)),
       getSpaceReferenceData(spaceId),
       getScheduledIdeas(spaceId),
     ])
 
     return ideas.map((idea) => mapIdea(idea, { ...refs, plan }))
+  },
+  async getIdea(spaceId: string, ideaId: string) {
+    return mapSingleIdea(spaceId, await request<ApiIdea>(`/api/spaces/${spaceId}/ideas/${ideaId}`))
   },
   async createIdea(spaceId: string, requestBody: CreateIdeaRequest) {
     const [createdIdea, refs, plan] = await Promise.all([
@@ -333,6 +350,31 @@ export const backendClient: DataClient = {
     ])
 
     return mapIdea(createdIdea, { ...refs, plan })
+  },
+  async updateIdea(spaceId: string, ideaId: string, requestBody: UpdateIdeaRequest) {
+    return mapSingleIdea(
+      spaceId,
+      await request<ApiIdea>(`/api/spaces/${spaceId}/ideas/${ideaId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(requestBody),
+      }),
+    )
+  },
+  async archiveIdea(spaceId: string, ideaId: string) {
+    return mapSingleIdea(
+      spaceId,
+      await request<ApiIdea>(`/api/spaces/${spaceId}/ideas/${ideaId}/archive`, {
+        method: 'POST',
+      }),
+    )
+  },
+  async restoreIdea(spaceId: string, ideaId: string) {
+    return mapSingleIdea(
+      spaceId,
+      await request<ApiIdea>(`/api/spaces/${spaceId}/ideas/${ideaId}/restore`, {
+        method: 'POST',
+      }),
+    )
   },
   async getFolders(spaceId: string) {
     const [folders, ideas] = await Promise.all([

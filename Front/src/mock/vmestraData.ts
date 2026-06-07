@@ -1,5 +1,5 @@
 export type SpaceKind = 'personal' | 'group'
-export type IdeaStatus = 'inbox' | 'saved' | 'planned' | 'memory'
+export type IdeaStatus = 'inbox' | 'saved' | 'planned' | 'memory' | 'archived'
 
 export type Member = {
   id: string
@@ -274,14 +274,15 @@ export const currentUser = members[0]
 
 function withActualStats(space: Space): Space {
   const spaceIdeas = ideas.filter((idea) => idea.spaceId === space.id)
+  const activeIdeas = spaceIdeas.filter((idea) => idea.status !== 'archived')
   const spaceHistory = history.filter((entry) => entry.spaceId === space.id)
 
   return {
     ...space,
     stats: {
-      inbox: spaceIdeas.filter((idea) => idea.status === 'inbox').length,
-      ideas: spaceIdeas.length,
-      planned: spaceIdeas.filter((idea) => idea.status === 'planned').length,
+      inbox: activeIdeas.filter((idea) => idea.status === 'inbox').length,
+      ideas: activeIdeas.length,
+      planned: activeIdeas.filter((idea) => idea.status === 'planned').length,
       memories: spaceHistory.length,
     },
   }
@@ -298,8 +299,13 @@ export const mockApi = {
   async getMembers(spaceId: string) {
     return (spaces.find((space) => space.id === spaceId) ?? spaces[0]).members
   },
-  async getSpaceIdeas(spaceId: string) {
-    return ideas.filter((idea) => idea.spaceId === spaceId)
+  async getSpaceIdeas(spaceId: string, options?: { includeArchived?: boolean }) {
+    return ideas.filter((idea) => idea.spaceId === spaceId && (options?.includeArchived || idea.status !== 'archived'))
+  },
+  async getIdea(spaceId: string, ideaId: string) {
+    const idea = ideas.find((item) => item.spaceId === spaceId && item.id === ideaId)
+    if (!idea) throw new Error('Idea not found')
+    return idea
   },
   async createIdea(spaceId: string, text: string, authorId: string) {
     const newIdea: Idea = {
@@ -318,8 +324,47 @@ export const mockApi = {
     ideas.unshift(newIdea)
     return newIdea
   },
+  async updateIdea(
+    spaceId: string,
+    ideaId: string,
+    request: {
+      text?: string
+      title?: string | null
+      description?: string | null
+      state?: 'Inbox' | 'Active' | 'Planned' | 'Experienced' | 'Archived'
+      isRecurring?: boolean
+    },
+  ) {
+    const index = ideas.findIndex((idea) => idea.spaceId === spaceId && idea.id === ideaId)
+    if (index < 0) throw new Error('Idea not found')
+
+    const statusByState = {
+      Inbox: 'inbox',
+      Active: 'saved',
+      Planned: 'planned',
+      Experienced: 'memory',
+      Archived: 'archived',
+    } as const
+    const currentIdea = ideas[index]
+    const updatedIdea: Idea = {
+      ...currentIdea,
+      title: request.title ?? request.text ?? currentIdea.title,
+      note: request.description ?? currentIdea.note,
+      status: request.state ? statusByState[request.state] : currentIdea.status,
+      repeatable: request.isRecurring ?? currentIdea.repeatable,
+    }
+
+    ideas[index] = updatedIdea
+    return updatedIdea
+  },
+  async archiveIdea(spaceId: string, ideaId: string) {
+    return this.updateIdea(spaceId, ideaId, { state: 'Archived' })
+  },
+  async restoreIdea(spaceId: string, ideaId: string) {
+    return this.updateIdea(spaceId, ideaId, { state: 'Active' })
+  },
   async getFolders(spaceId: string) {
-    const spaceIdeas = ideas.filter((idea) => idea.spaceId === spaceId)
+    const spaceIdeas = ideas.filter((idea) => idea.spaceId === spaceId && idea.status !== 'archived')
     return folders.map((folder) => ({
       ...folder,
       count: spaceIdeas.filter((idea) => idea.folder === folder.name).length,

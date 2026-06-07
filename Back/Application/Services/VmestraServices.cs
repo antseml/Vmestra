@@ -79,7 +79,7 @@ public sealed class SpaceService(ISpaceRepository spaces)
     }
 }
 
-public sealed class IdeaService(SpaceService spaces, IIdeaRepository ideas)
+public sealed class IdeaService(SpaceService spaces, IIdeaRepository ideas, IClassificationRepository classification)
 {
     public AppResult<IReadOnlyCollection<IdeaResponse>> GetIdeas(Guid currentUserId, Guid spaceId, Guid? folderId, Guid? tagId, Guid? categoryId, IdeaState? state, bool includeArchived)
     {
@@ -97,13 +97,41 @@ public sealed class IdeaService(SpaceService spaces, IIdeaRepository ideas)
     {
         if (!spaces.IsMember(spaceId, currentUserId)) return AppResult<IdeaResponse>.NotFound();
         if (string.IsNullOrWhiteSpace(request.Text)) return AppResult<IdeaResponse>.Validation("Idea text is required.");
+        if (!ValidateRelations(spaceId, request.FolderId, request.CategoryId, request.TagIds)) return AppResult<IdeaResponse>.Validation("Idea folder, category, and tags must belong to the same space.");
         return ideas.CreateIdea(spaceId, request, currentUserId) is { } idea ? AppResult<IdeaResponse>.Ok(idea.ToResponse()) : AppResult<IdeaResponse>.NotFound();
     }
 
     public AppResult<IdeaResponse> UpdateIdea(Guid currentUserId, Guid spaceId, Guid ideaId, UpdateIdeaRequest request)
     {
         if (!spaces.IsMember(spaceId, currentUserId)) return AppResult<IdeaResponse>.NotFound();
-        return ideas.UpdateIdea(spaceId, ideaId, request) is { } idea ? AppResult<IdeaResponse>.Ok(idea.ToResponse()) : AppResult<IdeaResponse>.NotFound();
+        if (ideas.GetIdea(spaceId, ideaId) is null) return AppResult<IdeaResponse>.NotFound();
+        if (!ValidateRelations(spaceId, request.FolderId, request.CategoryId, request.TagIds)) return AppResult<IdeaResponse>.Validation("Idea folder, category, and tags must belong to the same space.");
+        return ideas.UpdateIdea(spaceId, ideaId, request, currentUserId) is { } idea ? AppResult<IdeaResponse>.Ok(idea.ToResponse()) : AppResult<IdeaResponse>.NotFound();
+    }
+
+    public AppResult<IdeaResponse> ArchiveIdea(Guid currentUserId, Guid spaceId, Guid ideaId)
+    {
+        if (!spaces.IsMember(spaceId, currentUserId)) return AppResult<IdeaResponse>.NotFound();
+        return ideas.ArchiveIdea(spaceId, ideaId, currentUserId) is { } idea ? AppResult<IdeaResponse>.Ok(idea.ToResponse()) : AppResult<IdeaResponse>.NotFound();
+    }
+
+    public AppResult<IdeaResponse> RestoreIdea(Guid currentUserId, Guid spaceId, Guid ideaId)
+    {
+        if (!spaces.IsMember(spaceId, currentUserId)) return AppResult<IdeaResponse>.NotFound();
+        return ideas.RestoreIdea(spaceId, ideaId, currentUserId) is { } idea ? AppResult<IdeaResponse>.Ok(idea.ToResponse()) : AppResult<IdeaResponse>.NotFound();
+    }
+
+    private bool ValidateRelations(Guid spaceId, Guid? folderId, Guid? categoryId, IReadOnlyCollection<Guid>? tagIds)
+    {
+        if (folderId is not null && !classification.GetFolders(spaceId).Any(folder => folder.Id == folderId)) return false;
+        if (categoryId is not null && !classification.GetCategories(spaceId).Any(category => category.Id == categoryId)) return false;
+        if (tagIds is not null)
+        {
+            var knownTagIds = classification.GetTags(spaceId).Select(tag => tag.Id).ToHashSet();
+            if (tagIds.Any(tagId => !knownTagIds.Contains(tagId))) return false;
+        }
+
+        return true;
     }
 }
 

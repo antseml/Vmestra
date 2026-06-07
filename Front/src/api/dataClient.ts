@@ -1,4 +1,4 @@
-import type { CreateIdeaRequest } from './apiContract'
+import type { CreateIdeaRequest, UpdateIdeaRequest } from './apiContract'
 import { backendClient } from './backendClient'
 import { mockClient } from './mockClient'
 import type { Folder, HistoryEntry, Idea, Member, Recommendation, Space } from '../mock/vmestraData'
@@ -8,8 +8,12 @@ export type DataClient = {
   getSpaces(userId?: string): Promise<Space[]>
   getSpace(spaceId: string): Promise<Space>
   getMembers(spaceId: string): Promise<Member[]>
-  getIdeas(spaceId: string): Promise<Idea[]>
+  getIdeas(spaceId: string, options?: { includeArchived?: boolean }): Promise<Idea[]>
+  getIdea(spaceId: string, ideaId: string): Promise<Idea>
   createIdea(spaceId: string, request: CreateIdeaRequest): Promise<Idea>
+  updateIdea(spaceId: string, ideaId: string, request: UpdateIdeaRequest): Promise<Idea>
+  archiveIdea(spaceId: string, ideaId: string): Promise<Idea>
+  restoreIdea(spaceId: string, ideaId: string): Promise<Idea>
   getFolders(spaceId: string): Promise<Folder[]>
   getTags(spaceId: string): Promise<string[]>
   getCategories(spaceId: string): Promise<string[]>
