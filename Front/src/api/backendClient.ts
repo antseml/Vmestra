@@ -2,7 +2,7 @@ import type { ApiIdeaState, ApiScheduledIdeaState, ApiSpaceKind, CreateIdeaReque
 import type { DataClient } from './dataClient'
 import type { Folder, HistoryEntry, Idea, Member, Recommendation, Space, SpaceKind } from '../mock/vmestraData'
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:5103'
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
 
 const FALLBACK_SPACE_TITLE = 'Пространство'
 const FALLBACK_SPACE_DESCRIPTION = 'Идеи внутри выбранного пространства.'
