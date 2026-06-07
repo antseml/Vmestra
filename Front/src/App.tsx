@@ -9,10 +9,11 @@ import {
   Users,
   Wand2,
 } from 'lucide-react'
-import { useEffect, useMemo, useState, type ElementType } from 'react'
+import { useEffect, useMemo, useState, type ElementType, type FormEvent } from 'react'
 import './App.css'
 import { DEFAULT_DEMO_USER_ID } from './api/apiContract'
-import { dataClient, dataSourceLabel } from './api/dataClient'
+import { AuthRequiredError, authClient, setUnauthorizedHandler, type AuthUser } from './api/authClient'
+import { dataClient, dataSourceLabel, isBackendDataSource } from './api/dataClient'
 import { type View } from './appNavigation'
 import { AppLayout } from './components/AppLayout'
 import { QuickAdd } from './components/QuickAdd'
@@ -47,6 +48,7 @@ function App() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [quickAddNotice, setQuickAddNotice] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
+  const [authRequired, setAuthRequired] = useState(isBackendDataSource && !authClient.hasToken())
 
   const selectedSpace = spaces.find((space) => space.id === selectedSpaceId) ?? spaces[0]
   const inboxIdeas = spaceIdeas.filter((idea) => idea.status === 'inbox')
@@ -81,8 +83,13 @@ function App() {
         setSelectedSpaceId((currentSpaceId) =>
           nextSpaces.some((space) => space.id === currentSpaceId) ? currentSpaceId : (nextSpaces[0]?.id ?? ''),
         )
-      } catch {
-        if (isMounted) setLoadError('Не удалось загрузить пространства. Проверьте источник данных и попробуйте снова.')
+      } catch (error) {
+        if (!isMounted) return
+        if (error instanceof AuthRequiredError) {
+          setAuthRequired(true)
+          return
+        }
+        setLoadError('Не удалось загрузить пространства. Проверьте источник данных и попробуйте снова.')
       } finally {
         if (isMounted) setIsLoading(false)
       }
@@ -94,6 +101,21 @@ function App() {
       isMounted = false
     }
   }, [reloadKey])
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setAuthRequired(true)
+      setCurrentUser(null)
+      setSpaces([])
+      setSpaceIdeas([])
+      setFolders([])
+      setCategories([])
+      setSpaceHistory([])
+      setRecommendations([])
+    })
+
+    return () => setUnauthorizedHandler(undefined)
+  }, [])
 
   useEffect(() => {
     if (!selectedSpace?.id) return
@@ -121,8 +143,13 @@ function App() {
         setCategories(nextCategories)
         setSpaceHistory(nextHistory)
         setRecommendations(nextRecommendations)
-      } catch {
-        if (isMounted) setLoadError('Не удалось загрузить данные пространства. Попробуйте обновить экран.')
+      } catch (error) {
+        if (!isMounted) return
+        if (error instanceof AuthRequiredError) {
+          setAuthRequired(true)
+          return
+        }
+        setLoadError('Не удалось загрузить данные пространства. Попробуйте обновить экран.')
       }
     }
 
@@ -178,6 +205,30 @@ function App() {
     setShowOnboarding(false)
   }
 
+  function continueWithAuth(user: AuthUser) {
+    setCurrentUser({
+      id: user.id,
+      name: user.displayName,
+      role: 'Admin',
+      avatar: user.displayName.slice(0, 1).toUpperCase(),
+    })
+    setAuthRequired(false)
+    setLoadError(null)
+    setReloadKey((key) => key + 1)
+  }
+
+  function logout() {
+    authClient.logout()
+    setAuthRequired(isBackendDataSource)
+    setCurrentUser(null)
+    setSpaces([])
+    setSpaceIdeas([])
+    setFolders([])
+    setCategories([])
+    setSpaceHistory([])
+    setRecommendations([])
+  }
+
   if (isLoading) {
     return (
       <main className="app-shell" data-theme={theme}>
@@ -186,6 +237,22 @@ function App() {
           <h1>Загружаем пространства</h1>
           <p>Источник данных: {dataSourceLabel}</p>
         </section>
+      </main>
+    )
+  }
+
+  if (isBackendDataSource && authRequired) {
+    return (
+      <main className="app-shell" data-theme={theme}>
+        <AuthScreen onAuthenticated={continueWithAuth} />
+      </main>
+    )
+  }
+
+  if (!loadError && currentUser && spaces.length === 0) {
+    return (
+      <main className="app-shell" data-theme={theme}>
+        <NoSpacesScreen currentUser={currentUser} onLogout={logout} />
       </main>
     )
   }
@@ -211,6 +278,7 @@ function App() {
         activeView={activeView}
         currentUser={currentUser}
         selectedSpace={selectedSpaceWithLiveStats}
+        onLogout={isBackendDataSource ? logout : undefined}
         setActiveView={setActiveView}
         setTheme={setTheme}
         theme={theme}
@@ -283,6 +351,118 @@ function App() {
         />
       )}
     </main>
+  )
+}
+
+function NoSpacesScreen({ currentUser, onLogout }: { currentUser: Member; onLogout: () => void }) {
+  return (
+    <section className="auth-screen">
+      <div className="auth-card">
+        <div className="brand auth-brand">
+          <div className="brand-mark">{currentUser.avatar}</div>
+          <div>
+            <strong>{currentUser.name}</strong>
+            <span>аккаунт подключён</span>
+          </div>
+        </div>
+        <span className="eyebrow">Пространства</span>
+        <h1>Пока нет доступных пространств</h1>
+        <p>Когда появится личное или групповое пространство, идеи будут жить внутри него.</p>
+        <button className="text-button auth-logout" type="button" onClick={onLogout}>
+          Выйти
+        </button>
+      </div>
+    </section>
+  )
+}
+
+function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => void }) {
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function submitAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setIsSubmitting(true)
+    setError(null)
+
+    try {
+      const response =
+        mode === 'login'
+          ? await authClient.login({ email, password })
+          : await authClient.register({ email, password, displayName })
+      onAuthenticated(response.user)
+    } catch {
+      setError(mode === 'login' ? 'Не удалось войти. Проверьте email и пароль.' : 'Не удалось создать аккаунт.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <section className="auth-screen">
+      <div className="auth-card">
+        <div className="brand auth-brand">
+          <div className="brand-mark">V</div>
+          <div>
+            <strong>Vmestra</strong>
+            <span>войдите, чтобы открыть свои пространства</span>
+          </div>
+        </div>
+
+        <div className="segmented" aria-label="Авторизация">
+          <button className={mode === 'login' ? 'active' : ''} type="button" onClick={() => setMode('login')}>
+            Войти
+          </button>
+          <button className={mode === 'register' ? 'active' : ''} type="button" onClick={() => setMode('register')}>
+            Создать аккаунт
+          </button>
+        </div>
+
+        <form className="auth-form" onSubmit={submitAuth}>
+          {mode === 'register' && (
+            <label>
+              Имя
+              <input
+                autoComplete="name"
+                required
+                type="text"
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+              />
+            </label>
+          )}
+          <label>
+            Email
+            <input
+              autoComplete="email"
+              required
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </label>
+          <label>
+            Пароль
+            <input
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              minLength={6}
+              required
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </label>
+          {error && <p className="form-note auth-error">{error}</p>}
+          <button className="primary-button" disabled={isSubmitting} type="submit">
+            {isSubmitting ? 'Подождите' : mode === 'login' ? 'Войти' : 'Создать и войти'}
+          </button>
+        </form>
+      </div>
+    </section>
   )
 }
 

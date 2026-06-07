@@ -18,7 +18,9 @@ public sealed class VmestraSeeder(VmestraDbContext db)
                 Id = user.Id,
                 DisplayName = user.DisplayName,
                 Email = user.Email,
-                CreatedAt = user.CreatedAt
+                PasswordHash = user.PasswordHash,
+                CreatedAt = user.CreatedAt,
+                UpdatedAt = user.UpdatedAt
             }));
         }
 

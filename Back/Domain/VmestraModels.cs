@@ -45,7 +45,9 @@ public sealed record User(
     Guid Id,
     string DisplayName,
     string? Email,
-    DateTimeOffset CreatedAt);
+    string? PasswordHash,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset UpdatedAt);
 
 public sealed record Space(
     Guid Id,

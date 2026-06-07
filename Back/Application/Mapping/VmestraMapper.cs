@@ -7,6 +7,8 @@ public static class VmestraMapper
 {
     public static UserResponse ToResponse(this User value) => new(value.Id, value.DisplayName, value.Email, value.CreatedAt);
 
+    public static CurrentUserResponse ToCurrentUserResponse(this User value) => new(value.Id, value.DisplayName, value.Email ?? string.Empty, value.CreatedAt, value.UpdatedAt);
+
     public static SpaceResponse ToResponse(this Space value) => new(value.Id, value.Kind, value.Name, value.State, value.CreatedByUserId, value.CreatedAt, value.UpdatedAt);
 
     public static SpaceMemberResponse ToResponse(this SpaceMember value) => new(value.Id, value.SpaceId, value.UserId, value.Role, value.PersonalSpaceName, value.JoinedAt);

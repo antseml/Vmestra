@@ -11,6 +11,27 @@ public sealed class InMemoryUserRepository(InMemoryVmestraDatabase database) : I
         lock (database.Gate) return database.Users.ToArray();
     }
 
+    public User? GetUser(Guid userId)
+    {
+        lock (database.Gate) return database.Users.SingleOrDefault(user => user.Id == userId);
+    }
+
+    public User? GetUserByEmail(string normalizedEmail)
+    {
+        lock (database.Gate) return database.Users.SingleOrDefault(user => user.Email is not null && string.Equals(user.Email, normalizedEmail, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public User CreateUser(string email, string displayName, string passwordHash)
+    {
+        lock (database.Gate)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var user = new User(Guid.NewGuid(), displayName, email, passwordHash, now, now);
+            database.Users.Add(user);
+            return user;
+        }
+    }
+
     public User EnsureDemoUser()
     {
         lock (database.Gate)
@@ -18,7 +39,8 @@ public sealed class InMemoryUserRepository(InMemoryVmestraDatabase database) : I
             var user = database.Users.FirstOrDefault();
             if (user is not null) return user;
 
-            user = new User(Guid.NewGuid(), "Demo User", null, DateTimeOffset.UtcNow);
+            var now = DateTimeOffset.UtcNow;
+            user = new User(Guid.NewGuid(), "Demo User", null, null, now, now);
             database.Users.Add(user);
             return user;
         }

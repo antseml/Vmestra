@@ -1,5 +1,6 @@
 using Back.Application.Services;
 using Back.Domain;
+using System.Security.Claims;
 
 namespace Back.Api;
 
@@ -7,6 +8,19 @@ public static class VmestraEndpoints
 {
     public static IEndpointRouteBuilder MapVmestraEndpoints(this IEndpointRouteBuilder app)
     {
+        var auth = app.MapGroup("/api/auth").WithTags("Auth");
+        auth.MapPost("/register", (AuthService service, RegisterRequest request) =>
+            service.Register(request).ToCreatedHttpResult(response => $"/api/users/{response.User.Id}"));
+        auth.MapPost("/login", (AuthService service, LoginRequest request) =>
+            service.Login(request).ToHttpResult());
+        auth.MapGet("/me", (AuthService service, ClaimsPrincipal principal) =>
+        {
+            var userIdValue = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+            return Guid.TryParse(userIdValue, out var userId)
+                ? service.GetCurrentUser(userId).ToHttpResult()
+                : Results.Unauthorized();
+        }).RequireAuthorization();
+
         app.MapGet("/api/users", (UserService service) => service.GetUsers().ToHttpResult())
             .WithTags("Users");
 

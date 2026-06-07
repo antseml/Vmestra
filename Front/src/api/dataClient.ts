@@ -21,3 +21,5 @@ export type DataClient = {
 export const dataClient: DataClient = import.meta.env.VITE_DATA_SOURCE === 'backend' ? backendClient : mockClient
 
 export const dataSourceLabel = import.meta.env.VITE_DATA_SOURCE === 'backend' ? 'backend API' : 'mock API'
+
+export const isBackendDataSource = import.meta.env.VITE_DATA_SOURCE === 'backend'

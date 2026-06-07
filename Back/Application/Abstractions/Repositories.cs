@@ -6,6 +6,9 @@ namespace Back.Application.Abstractions;
 public interface IUserRepository
 {
     IReadOnlyCollection<User> GetUsers();
+    User? GetUser(Guid userId);
+    User? GetUserByEmail(string normalizedEmail);
+    User CreateUser(string email, string displayName, string passwordHash);
     User EnsureDemoUser();
 }
 

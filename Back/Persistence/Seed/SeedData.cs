@@ -25,7 +25,7 @@ public static class SeedData
     public static VmestraSeedSnapshot Create()
     {
         var now = DateTimeOffset.UtcNow;
-        var user = new User(DemoUserId, "Demo User", "demo@vmestra.local", now);
+        var user = new User(DemoUserId, "Demo User", "demo@vmestra.local", null, now, now);
         var personalSpace = new Space(PersonalSpaceId, SpaceKind.Personal, "Личное пространство", SpaceState.Active, user.Id, now, now);
         var groupSpace = new Space(GroupSpaceId, SpaceKind.Group, "Идеи на выходные", SpaceState.Active, user.Id, now, now);
         var inboxFolder = new Folder(InboxFolderId, personalSpace.Id, "Входящие", 0, now, now);

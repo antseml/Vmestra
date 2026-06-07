@@ -1,4 +1,5 @@
-import type { ApiIdeaState, ApiScheduledIdeaState, ApiSpaceKind, CreateIdeaRequest } from './apiContract'
+﻿import type { ApiIdeaState, ApiScheduledIdeaState, ApiSpaceKind, CreateIdeaRequest } from './apiContract'
+import { AuthRequiredError, authClient, getAuthToken, handleUnauthorized } from './authClient'
 import type { DataClient } from './dataClient'
 import type { Folder, HistoryEntry, Idea, Member, Recommendation, Space, SpaceKind } from '../mock/vmestraData'
 
@@ -101,10 +102,20 @@ type IdeaReferenceData = SpaceReferenceData & {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getAuthToken()
   const response = await fetch(`${apiBaseUrl}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
     ...init,
   })
+
+  if (response.status === 401) {
+    handleUnauthorized()
+    throw new AuthRequiredError()
+  }
 
   if (!response.ok) {
     throw new Error(`API ${response.status}: ${response.statusText}`)
@@ -137,7 +148,7 @@ function mapMember(member: ApiSpaceMember, usersById: Map<string, ApiUser>): Mem
   const user = usersById.get(member.userId)
   return {
     id: member.id,
-    name: user?.displayName ?? `Участник ${member.userId.slice(0, 4)}`,
+    name: user?.displayName ?? `РЈС‡Р°СЃС‚РЅРёРє ${member.userId.slice(0, 4)}`,
     role: member.role,
     avatar: user?.displayName.slice(0, 1).toUpperCase() ?? '?',
   }
@@ -256,8 +267,7 @@ async function getScheduledIdeas(spaceId: string, range?: { from?: string; to?: 
 
 export const backendClient: DataClient = {
   async getCurrentUser() {
-    const users = await request<ApiUser[]>('/api/users')
-    return userToMember(users[0], 'Admin')
+    return userToMember(await authClient.me(), 'Admin')
   },
   async getSpaces(userId: string) {
     const [spaces, usersById] = await Promise.all([request<ApiSpace[]>(`/api/spaces?userId=${encodeURIComponent(userId)}`), getUsersById()])

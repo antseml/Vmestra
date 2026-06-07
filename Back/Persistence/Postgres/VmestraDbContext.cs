@@ -44,8 +44,11 @@ public sealed class VmestraDbContext(DbContextOptions<VmestraDbContext> options)
         entity.Property(value => value.Id).HasColumnName("id");
         entity.Property(value => value.DisplayName).HasColumnName("display_name").HasMaxLength(160).IsRequired();
         entity.Property(value => value.Email).HasColumnName("email").HasMaxLength(320);
+        entity.Property(value => value.PasswordHash).HasColumnName("password_hash").HasMaxLength(512);
         entity.Property(value => value.AvatarUrl).HasColumnName("avatar_url").HasMaxLength(1000);
         entity.Property(value => value.CreatedAt).HasColumnName("created_at");
+        entity.Property(value => value.UpdatedAt).HasColumnName("updated_at");
+        entity.HasIndex(value => value.Email).IsUnique();
     }
 
     private static void ConfigureSpaces(ModelBuilder modelBuilder)

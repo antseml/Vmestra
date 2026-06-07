@@ -10,13 +10,26 @@ public sealed class PostgresUserRepository(VmestraDbContext db) : IUserRepositor
 {
     public IReadOnlyCollection<User> GetUsers() => db.Users.AsNoTracking().OrderBy(user => user.CreatedAt).Select(user => user.ToDomain()).ToArray();
 
+    public User? GetUser(Guid userId) => db.Users.AsNoTracking().SingleOrDefault(user => user.Id == userId)?.ToDomain();
+
+    public User? GetUserByEmail(string normalizedEmail) => db.Users.AsNoTracking().SingleOrDefault(user => user.Email == normalizedEmail)?.ToDomain();
+
+    public User CreateUser(string email, string displayName, string passwordHash)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var user = new UserEntity { Id = Guid.NewGuid(), DisplayName = displayName, Email = email, PasswordHash = passwordHash, CreatedAt = now, UpdatedAt = now };
+        db.Users.Add(user);
+        db.SaveChanges();
+        return user.ToDomain();
+    }
+
     public User EnsureDemoUser()
     {
         var user = db.Users.OrderBy(value => value.CreatedAt).FirstOrDefault();
         if (user is not null) return user.ToDomain();
 
         var now = DateTimeOffset.UtcNow;
-        user = new UserEntity { Id = Guid.NewGuid(), DisplayName = "Demo User", CreatedAt = now };
+        user = new UserEntity { Id = Guid.NewGuid(), DisplayName = "Demo User", CreatedAt = now, UpdatedAt = now };
         db.Users.Add(user);
         db.SaveChanges();
         return user.ToDomain();

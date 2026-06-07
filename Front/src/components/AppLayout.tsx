@@ -6,6 +6,7 @@ type AppLayoutProps = {
   activeView: View
   children: React.ReactNode
   currentUser: Member
+  onLogout?: () => void
   selectedSpace: Space
   setActiveView: (value: View) => void
   setTheme: (value: 'light' | 'dark') => void
@@ -16,6 +17,7 @@ export function AppLayout({
   activeView,
   children,
   currentUser,
+  onLogout,
   selectedSpace,
   setActiveView,
   setTheme,
@@ -28,6 +30,7 @@ export function AppLayout({
         <Header
           activeView={activeView}
           currentUser={currentUser}
+          onLogout={onLogout}
           selectedSpace={selectedSpace}
           setActiveView={setActiveView}
           setTheme={setTheme}
@@ -96,6 +99,7 @@ function Sidebar({
 function Header({
   activeView,
   currentUser,
+  onLogout,
   selectedSpace,
   setActiveView,
   setTheme,
@@ -103,6 +107,7 @@ function Header({
 }: {
   activeView: View
   currentUser: Member
+  onLogout?: () => void
   selectedSpace: Space
   setActiveView: (value: View) => void
   setTheme: (value: 'light' | 'dark') => void
@@ -135,6 +140,11 @@ function Header({
         <button className="ghost-button" type="button" onClick={() => setActiveView('profile')}>
           {currentUser.avatar}
         </button>
+        {onLogout && (
+          <button className="text-button" type="button" onClick={onLogout}>
+            Выйти
+          </button>
+        )}
       </div>
     </header>
   )

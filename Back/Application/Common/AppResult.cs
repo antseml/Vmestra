@@ -5,7 +5,8 @@ public enum AppErrorType
     None,
     Validation,
     NotFound,
-    Conflict
+    Conflict,
+    Unauthorized
 }
 
 public sealed record AppError(AppErrorType Type, string Message)
@@ -24,4 +25,6 @@ public sealed record AppResult<T>(T? Value, AppError Error)
     public static AppResult<T> NotFound(string message = "Resource not found.") => new(default, new AppError(AppErrorType.NotFound, message));
 
     public static AppResult<T> Conflict(string message) => new(default, new AppError(AppErrorType.Conflict, message));
+
+    public static AppResult<T> Unauthorized(string message = "Unauthorized.") => new(default, new AppError(AppErrorType.Unauthorized, message));
 }

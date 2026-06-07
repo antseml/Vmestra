@@ -4,6 +4,10 @@ namespace Back.Api;
 
 public sealed record UserResponse(Guid Id, string DisplayName, string? Email, DateTimeOffset CreatedAt);
 
+public sealed record CurrentUserResponse(Guid Id, string DisplayName, string Email, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+
+public sealed record AuthResponse(string AccessToken, DateTimeOffset ExpiresAt, CurrentUserResponse User);
+
 public sealed record SpaceResponse(Guid Id, SpaceKind Kind, string Name, SpaceState State, Guid CreatedByUserId, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
 
 public sealed record SpaceMemberResponse(Guid Id, Guid SpaceId, Guid UserId, SpaceMemberRole Role, string? PersonalSpaceName, DateTimeOffset JoinedAt);

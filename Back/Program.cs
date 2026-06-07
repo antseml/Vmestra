@@ -1,11 +1,14 @@
 using Back.Api;
 using Back.Application.Abstractions;
+using Back.Application.Security;
 using Back.Application.Services;
 using Back.Persistence;
 using Back.Persistence.InMemory;
 using Back.Persistence.Postgres;
 using Back.Persistence.Seed;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,6 +18,25 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
+builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
+var jwtOptions = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtOptions.Issuer,
+            ValidAudience = jwtOptions.Audience,
+            IssuerSigningKey = JwtTokenService.GetSecurityKey(jwtOptions.Secret),
+            ClockSkew = TimeSpan.FromMinutes(1)
+        };
+    });
+builder.Services.AddAuthorization();
 var storageProvider = StorageConfiguration.GetProvider(builder.Configuration);
 if (storageProvider == StorageProvider.Postgres)
 {
@@ -54,6 +76,9 @@ builder.Services.AddScoped<ClassificationService>();
 builder.Services.AddScoped<PlanningService>();
 builder.Services.AddScoped<HistoryService>();
 builder.Services.AddScoped<CommentService>();
+builder.Services.AddScoped<AuthService>();
+builder.Services.AddSingleton<PasswordHasher>();
+builder.Services.AddSingleton<JwtTokenService>();
 
 var app = builder.Build();
 
@@ -83,6 +108,8 @@ app.MapGet("/api/health", (IStorageHealth storage) => Results.Ok(new
     utcNow = DateTimeOffset.UtcNow
 }));
 
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapVmestraEndpoints();
 
 app.Run();

@@ -5,7 +5,7 @@ namespace Back.Persistence.Postgres;
 
 public static class PostgresMappers
 {
-    public static User ToDomain(this UserEntity value) => new(value.Id, value.DisplayName, value.Email, value.CreatedAt);
+    public static User ToDomain(this UserEntity value) => new(value.Id, value.DisplayName, value.Email, value.PasswordHash, value.CreatedAt, value.UpdatedAt);
 
     public static Space ToDomain(this SpaceEntity value) => new(value.Id, value.Kind, value.Name, value.State, value.CreatedByUserId, value.CreatedAt, value.UpdatedAt);
 

@@ -83,3 +83,12 @@ public sealed record UpdateHistoryEntryRequest(
 public sealed record CreateCommentRequest(
     Guid? CreatedByUserId,
     string Text);
+
+public sealed record RegisterRequest(
+    string Email,
+    string Password,
+    string DisplayName);
+
+public sealed record LoginRequest(
+    string Email,
+    string Password);
