@@ -1,0 +1,26 @@
+@Back_HostAddress = http://localhost:5103
+@PersonalSpaceId = 22222222-2222-2222-2222-222222222222
+
+GET {{Back_HostAddress}}/api/health
+Accept: application/json
+
+###
+
+GET {{Back_HostAddress}}/api/spaces
+Accept: application/json
+
+###
+
+GET {{Back_HostAddress}}/api/spaces/{{PersonalSpaceId}}/ideas
+Accept: application/json
+
+###
+
+POST {{Back_HostAddress}}/api/spaces/{{PersonalSpaceId}}/ideas
+Content-Type: application/json
+
+{
+  "text": "Try a new breakfast place"
+}
+
+###
