@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useState, type ElementType, type FormEvent } from 'react'
 import './App.css'
-import { AuthRequiredError, authClient, setUnauthorizedHandler, type AuthUser } from './api/authClient'
+import { AuthApiError, AuthRequiredError, authClient, setUnauthorizedHandler, type AuthUser } from './api/authClient'
 import { ApiRequestError } from './api/backendClient'
 import { dataClient, dataSourceLabel, isBackendDataSource } from './api/dataClient'
 import { type View } from './appNavigation'
@@ -36,17 +36,23 @@ type IdeaActions = {
   onSortOut: (idea: Idea) => void
 }
 
+function getApiErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiRequestError || error instanceof AuthApiError) return error.message
+  return fallback
+}
+
 function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [activeView, setActiveView] = useState<View>('spaces')
   const [selectedSpaceId, setSelectedSpaceId] = useState('friends')
-  const [showOnboarding, setShowOnboarding] = useState(shouldShowGuidedTour)
+  const [showOnboarding, setShowOnboarding] = useState(false)
   const [tourStep, setTourStep] = useState(0)
   const [quickIdea, setQuickIdea] = useState('')
   const [currentUser, setCurrentUser] = useState<Member | null>(null)
   const [spaces, setSpaces] = useState<Space[]>([])
   const [spaceIdeas, setSpaceIdeas] = useState<Idea[]>([])
   const [folders, setFolders] = useState<Folder[]>([])
+  const [tags, setTags] = useState<string[]>([])
   const [categories, setCategories] = useState<string[]>([])
   const [spaceHistory, setSpaceHistory] = useState<HistoryEntry[]>([])
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
@@ -55,6 +61,9 @@ function App() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [quickAddNotice, setQuickAddNotice] = useState<string | null>(null)
   const [ideaActionNotice, setIdeaActionNotice] = useState<string | null>(null)
+  const [planningNotice, setPlanningNotice] = useState<string | null>(null)
+  const [dictionaryNotice, setDictionaryNotice] = useState<string | null>(null)
+  const [groupNotice, setGroupNotice] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [authRequired, setAuthRequired] = useState(isBackendDataSource && !authClient.hasToken())
 
@@ -89,6 +98,7 @@ function App() {
         if (!isMounted) return
 
         setCurrentUser(user)
+        setShowOnboarding(shouldShowGuidedTour(user.id))
         setSpaces(nextSpaces)
         setSelectedSpaceId((currentSpaceId) =>
           nextSpaces.some((space) => space.id === currentSpaceId) ? currentSpaceId : (nextSpaces[0]?.id ?? ''),
@@ -124,6 +134,7 @@ function App() {
       setSpaceIdeas([])
       setFolders([])
       setCategories([])
+      setTags([])
       setSpaceHistory([])
       setRecommendations([])
     })
@@ -140,9 +151,10 @@ function App() {
       setLoadError(null)
 
       try {
-        const [nextIdeas, nextFolders, nextCategories, nextPlan, nextHistory, nextRecommendations] = await Promise.all([
+        const [nextIdeas, nextFolders, nextTags, nextCategories, nextPlan, nextHistory, nextRecommendations] = await Promise.all([
           dataClient.getIdeas(selectedSpace.id, { includeArchived: true }),
           dataClient.getFolders(selectedSpace.id),
+          dataClient.getTags(selectedSpace.id),
           dataClient.getCategories(selectedSpace.id),
           dataClient.getPlan(selectedSpace.id),
           dataClient.getHistory(selectedSpace.id),
@@ -154,6 +166,7 @@ function App() {
         const plannedIds = new Set(nextPlan.map((idea) => idea.id))
         setSpaceIdeas(nextIdeas.map((idea) => (plannedIds.has(idea.id) ? { ...idea, status: 'planned' } : idea)))
         setFolders(nextFolders)
+        setTags(nextTags)
         setCategories(nextCategories)
         setSpaceHistory(nextHistory)
         setRecommendations(nextRecommendations)
@@ -167,6 +180,7 @@ function App() {
           setActiveView('spaces')
           setSpaceIdeas([])
           setFolders([])
+          setTags([])
           setCategories([])
           setSpaceHistory([])
           setRecommendations([])
@@ -304,6 +318,81 @@ function App() {
     }
   }
 
+  async function scheduleIdea(ideaId: string, startsAt: string, participantUserIds: string[], note?: string) {
+    if (!selectedSpace?.id) return
+    setPlanningNotice(null)
+
+    try {
+      const plannedIdea = await dataClient.scheduleIdea(selectedSpace.id, ideaId, {
+        startsAt,
+        participantUserIds,
+        note: note?.trim() || null,
+      })
+      replaceIdea(plannedIdea)
+      setPlanningNotice('Идея добавлена в планы.')
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        setAuthRequired(true)
+        return
+      }
+      setPlanningNotice(getApiErrorMessage(error, 'Не удалось добавить идею в планы.'))
+    }
+  }
+
+  async function createGroupSpace(name: string) {
+    setGroupNotice(null)
+
+    try {
+      const newSpace = await dataClient.createSpace({ name: name.trim(), kind: 'Group' })
+      setSpaces((currentSpaces) => [newSpace, ...currentSpaces.filter((space) => space.id !== newSpace.id)])
+      setSelectedSpaceId(newSpace.id)
+      setSpaceIdeas([])
+      setFolders([])
+      setTags([])
+      setCategories([])
+      setSpaceHistory([])
+      setRecommendations([])
+      setActiveView('space')
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        setAuthRequired(true)
+        return
+      }
+      setGroupNotice(getApiErrorMessage(error, 'Не удалось создать пространство.'))
+    }
+  }
+
+  async function createDictionaryItem(kind: 'folder' | 'tag' | 'category', name: string) {
+    if (!selectedSpace?.id) return
+    const trimmedName = name.trim()
+    if (!trimmedName) return
+    setDictionaryNotice(null)
+
+    try {
+      if (kind === 'folder') {
+        const folder = await dataClient.createFolder(selectedSpace.id, { name: trimmedName })
+        setFolders((currentFolders) => [...currentFolders, folder])
+        setDictionaryNotice('Папка добавлена.')
+        return
+      }
+      if (kind === 'tag') {
+        const tag = await dataClient.createTag(selectedSpace.id, { name: trimmedName, source: 'User' })
+        setTags((currentTags) => Array.from(new Set([...currentTags, tag])))
+        setDictionaryNotice('Тег добавлен.')
+        return
+      }
+      const category = await dataClient.createCategory(selectedSpace.id, { name: trimmedName })
+      setCategories((currentCategories) => Array.from(new Set([...currentCategories, category])))
+      setDictionaryNotice('Категория добавлена.')
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        setAuthRequired(true)
+        return
+      }
+      setDictionaryNotice(getApiErrorMessage(error, 'Не удалось обновить справочник.'))
+    }
+  }
+
   const ideaActions: IdeaActions = {
     onArchive: archiveIdea,
     onEdit: saveIdeaEdit,
@@ -312,7 +401,7 @@ function App() {
   }
 
   function completeGuidedTour() {
-    markGuidedTourCompleted()
+    markGuidedTourCompleted(currentUser?.id)
     setShowOnboarding(false)
   }
 
@@ -324,6 +413,7 @@ function App() {
       avatar: user.displayName.slice(0, 1).toUpperCase(),
     })
     setAuthRequired(false)
+    setShowOnboarding(shouldShowGuidedTour(user.id))
     setLoadError(null)
     setReloadKey((key) => key + 1)
   }
@@ -331,10 +421,12 @@ function App() {
   function logout() {
     authClient.logout()
     setAuthRequired(isBackendDataSource)
+    setShowOnboarding(false)
     setCurrentUser(null)
     setSpaces([])
     setSpaceIdeas([])
     setFolders([])
+    setTags([])
     setCategories([])
     setSpaceHistory([])
     setRecommendations([])
@@ -436,6 +528,9 @@ function App() {
             ideaActions={ideaActions}
             ideaActionNotice={ideaActionNotice}
             ideas={activeLibraryIdeas}
+            onCreateDictionaryItem={createDictionaryItem}
+            tags={tags}
+            dictionaryNotice={dictionaryNotice}
           />
         )}
         {activeView === 'recommendations' && (
@@ -444,6 +539,8 @@ function App() {
         {activeView === 'planning' && (
           <PlanningScreen
             ideaActions={ideaActions}
+            onScheduleIdea={scheduleIdea}
+            planningNotice={planningNotice}
             plannedIdeas={plannedIdeas}
             selectedSpace={selectedSpaceWithLiveStats}
             spaceIdeas={spaceIdeas}
@@ -452,7 +549,7 @@ function App() {
         {activeView === 'calendar' && <CalendarScreen plannedIdeas={plannedIdeas} />}
         {activeView === 'history' && <HistoryScreen entries={spaceHistory} />}
         {activeView === 'profile' && <ProfileScreen currentUser={currentUser} onCreateGroup={() => setActiveView('group')} />}
-        {activeView === 'group' && <GroupScreen />}
+        {activeView === 'group' && <GroupScreen groupNotice={groupNotice} onCreateGroup={createGroupSpace} />}
       </AppLayout>
 
       {showOnboarding && (
@@ -524,8 +621,13 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => 
           ? await authClient.login({ email, password })
           : await authClient.register({ email, password, displayName })
       onAuthenticated(response.user)
-    } catch {
-      setError(mode === 'login' ? 'Не удалось войти. Проверьте email и пароль.' : 'Не удалось создать аккаунт.')
+    } catch (error) {
+      setError(
+        getApiErrorMessage(
+          error,
+          mode === 'login' ? 'Не удалось войти. Проверьте email и пароль.' : 'Не удалось создать аккаунт.',
+        ),
+      )
     } finally {
       setIsSubmitting(false)
     }
@@ -578,7 +680,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => 
             Пароль
             <input
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              minLength={6}
+              minLength={8}
               required
               type="password"
               value={password}
@@ -586,6 +688,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => 
             />
           </label>
           {error && <p className="form-note auth-error">{error}</p>}
+          <p className="form-note">Пароль должен быть не короче 8 символов.</p>
           <button className="primary-button" disabled={isSubmitting} type="submit">
             {isSubmitting ? 'Подождите' : mode === 'login' ? 'Войти' : 'Создать и войти'}
           </button>
@@ -711,20 +814,35 @@ function InboxScreen({
 function LibraryScreen({
   archivedIdeas,
   categories,
+  dictionaryNotice,
   folders,
   ideaActions,
   ideaActionNotice,
   ideas,
+  onCreateDictionaryItem,
+  tags,
 }: {
   archivedIdeas: Idea[]
   categories: string[]
+  dictionaryNotice: string | null
   folders: Folder[]
   ideaActions: IdeaActions
   ideaActionNotice: string | null
   ideas: Idea[]
+  onCreateDictionaryItem: (kind: 'folder' | 'tag' | 'category', name: string) => void
+  tags: string[]
 }) {
   const [showArchived, setShowArchived] = useState(false)
+  const [folderName, setFolderName] = useState('')
+  const [tagName, setTagName] = useState('')
+  const [categoryName, setCategoryName] = useState('')
   const visibleIdeas = showArchived ? [...ideas, ...archivedIdeas] : ideas
+
+  function submitDictionaryItem(kind: 'folder' | 'tag' | 'category', name: string, reset: () => void) {
+    if (!name.trim()) return
+    onCreateDictionaryItem(kind, name)
+    reset()
+  }
 
   return (
     <div className="screen-grid">
@@ -744,6 +862,48 @@ function LibraryScreen({
             </div>
           ))}
         </div>
+        <div className="dictionary-create-grid">
+          <label>
+            Новая папка
+            <span>
+              <input value={folderName} onChange={(event) => setFolderName(event.target.value)} />
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => submitDictionaryItem('folder', folderName, () => setFolderName(''))}
+              >
+                Добавить
+              </button>
+            </span>
+          </label>
+          <label>
+            Новый тег
+            <span>
+              <input value={tagName} onChange={(event) => setTagName(event.target.value)} />
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => submitDictionaryItem('tag', tagName, () => setTagName(''))}
+              >
+                Добавить
+              </button>
+            </span>
+          </label>
+          <label>
+            Новая категория
+            <span>
+              <input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} />
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => submitDictionaryItem('category', categoryName, () => setCategoryName(''))}
+              >
+                Добавить
+              </button>
+            </span>
+          </label>
+        </div>
+        {dictionaryNotice && <p className="form-note">{dictionaryNotice}</p>}
         {folders.length === 0 && <EmptyState text="Папки появятся здесь, когда в пространстве будет первый справочник." />}
         <div className="archive-toggle">
           <button
@@ -762,13 +922,13 @@ function LibraryScreen({
         <span className="eyebrow">Теги</span>
         <h2>Сервис может предложить, пользователь может поправить</h2>
         <div className="tag-cloud">
-          {Array.from(new Set(ideas.flatMap((idea) => idea.tags))).map((tag) => (
+          {tags.map((tag) => (
             <span className="tag" key={tag}>
               {tag}
             </span>
           ))}
         </div>
-        {ideas.every((idea) => idea.tags.length === 0) && <EmptyState text="Теги пока не заданы." compact />}
+        {tags.length === 0 && <EmptyState text="Теги пока не заданы." compact />}
         <span className="eyebrow spacing-top">Категории</span>
         <div className="tag-cloud">
           {categories.map((category) => (
@@ -811,23 +971,32 @@ function buildPlanStartsAt(date: string, time: string) {
 
 function PlanningScreen({
   ideaActions,
+  onScheduleIdea,
+  planningNotice,
   selectedSpace,
   plannedIdeas,
   spaceIdeas,
 }: {
   ideaActions: IdeaActions
+  onScheduleIdea: (ideaId: string, startsAt: string, participantUserIds: string[], note?: string) => void
+  planningNotice: string | null
   selectedSpace: Space
   plannedIdeas: Idea[]
   spaceIdeas: Idea[]
 }) {
-  const [selectedIdeaId, setSelectedIdeaId] = useState(plannedIdeas[0]?.id ?? spaceIdeas[0]?.id ?? '')
+  const availableIdeas = spaceIdeas.filter((idea) => idea.status !== 'archived' && idea.status !== 'memory')
+  const [selectedIdeaId, setSelectedIdeaId] = useState(plannedIdeas[0]?.id ?? availableIdeas[0]?.id ?? '')
   const [planDate, setPlanDate] = useState('2026-06-12')
   const [planTime, setPlanTime] = useState('20:00')
+  const [planNote, setPlanNote] = useState('')
+  const effectiveSelectedIdeaId = availableIdeas.some((idea) => idea.id === selectedIdeaId)
+    ? selectedIdeaId
+    : (availableIdeas[0]?.id ?? '')
   const startsAt = buildPlanStartsAt(planDate, planTime)
   const draftPlanPayload = {
-    ideaId: selectedIdeaId,
+    ideaId: effectiveSelectedIdeaId,
     startsAt,
-    participantIds: selectedSpace.members.map((member) => member.id),
+    participantUserIds: selectedSpace.members.map((member) => member.id),
   }
 
   return (
@@ -843,11 +1012,11 @@ function PlanningScreen({
         <div className="planning-form">
           <label>
             Идея
-            <select value={selectedIdeaId} onChange={(event) => setSelectedIdeaId(event.target.value)}>
-              {spaceIdeas.length === 0 ? (
+            <select value={effectiveSelectedIdeaId} onChange={(event) => setSelectedIdeaId(event.target.value)}>
+              {availableIdeas.length === 0 ? (
                 <option value="">Сначала сохраните идею</option>
               ) : (
-                spaceIdeas.map((idea) => (
+                availableIdeas.map((idea) => (
                   <option key={idea.id} value={idea.id}>
                     {idea.title}
                   </option>
@@ -862,6 +1031,10 @@ function PlanningScreen({
           <label>
             Время
             <input value={planTime} type="time" onChange={(event) => setPlanTime(event.target.value)} />
+          </label>
+          <label>
+            Заметка
+            <input value={planNote} onChange={(event) => setPlanNote(event.target.value)} placeholder="Необязательно" />
           </label>
           <div>
             <span className="field-label">Участники</span>
@@ -878,13 +1051,19 @@ function PlanningScreen({
             className="primary-button"
             disabled={!draftPlanPayload.ideaId || !draftPlanPayload.startsAt}
             type="button"
-            onClick={() => {
-              void draftPlanPayload
-            }}
+            onClick={() =>
+              onScheduleIdea(
+                draftPlanPayload.ideaId,
+                draftPlanPayload.startsAt,
+                draftPlanPayload.participantUserIds,
+                planNote,
+              )
+            }
           >
             Добавить в планы
             <CalendarDays size={17} />
           </button>
+          {planningNotice && <p className="form-note">{planningNotice}</p>}
         </div>
       </section>
 
@@ -987,7 +1166,17 @@ function ProfileScreen({ currentUser, onCreateGroup }: { currentUser: Member; on
   )
 }
 
-function GroupScreen() {
+function GroupScreen({
+  groupNotice,
+  onCreateGroup,
+}: {
+  groupNotice: string | null
+  onCreateGroup: (name: string) => void
+}) {
+  const [groupName, setGroupName] = useState('Новая группа')
+  const [personalName, setPersonalName] = useState('')
+  const [inviteText, setInviteText] = useState('')
+
   return (
     <section className="section-band full-band">
       <div className="section-title">
@@ -999,15 +1188,23 @@ function GroupScreen() {
       <div className="group-form">
         <label>
           Общее название
-          <input defaultValue="Новая группа" />
+          <input value={groupName} onChange={(event) => setGroupName(event.target.value)} />
         </label>
         <label>
           Моё личное название
-          <input placeholder="Например: воскресные планы" />
+          <input
+            placeholder="Например: воскресные планы"
+            value={personalName}
+            onChange={(event) => setPersonalName(event.target.value)}
+          />
         </label>
         <label>
           Участники
-          <input placeholder="Имя или email" />
+          <input
+            placeholder="Имя или email"
+            value={inviteText}
+            onChange={(event) => setInviteText(event.target.value)}
+          />
         </label>
         <div className="member-picks">
           {['Маша', 'Дима', 'Ира'].map((name) => (
@@ -1017,7 +1214,8 @@ function GroupScreen() {
             </button>
           ))}
         </div>
-        <button className="primary-button" type="button">
+        {groupNotice && <p className="form-note">{groupNotice}</p>}
+        <button className="primary-button" disabled={!groupName.trim()} type="button" onClick={() => onCreateGroup(groupName)}>
           Создать пространство
           <Users size={17} />
         </button>

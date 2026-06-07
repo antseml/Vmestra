@@ -65,6 +65,7 @@ export type Folder = {
 }
 
 const categories = ['Кино', 'Прогулка', 'Кафе', 'Вечер дома', 'Поездка', 'Места', 'Выходные']
+const customTags: string[] = []
 
 const members: Member[] = [
   { id: 'u-alex', name: 'Александра', role: 'Admin', avatar: 'А' },
@@ -293,6 +294,19 @@ export const mockApi = {
     void userId
     return spaces.map(withActualStats)
   },
+  async createSpace(request: { name: string; kind?: 'Personal' | 'Group' }) {
+    const newSpace: Space = {
+      id: `space-${Date.now()}`,
+      kind: request.kind === 'Personal' ? 'personal' : 'group',
+      title: request.name,
+      sharedTitle: request.name,
+      description: 'Новое пространство для идей, планов и общей памяти.',
+      members: [currentUser],
+      stats: { inbox: 0, ideas: 0, planned: 0, memories: 0 },
+    }
+    spaces.unshift(newSpace)
+    return newSpace
+  },
   async getSpace(spaceId: string) {
     return withActualStats(spaces.find((space) => space.id === spaceId) ?? spaces[0])
   },
@@ -363,6 +377,21 @@ export const mockApi = {
   async restoreIdea(spaceId: string, ideaId: string) {
     return this.updateIdea(spaceId, ideaId, { state: 'Active' })
   },
+  async scheduleIdea(
+    spaceId: string,
+    ideaId: string,
+    request: { startsAt: string; participantUserIds?: string[]; note?: string | null },
+  ) {
+    const idea = await this.updateIdea(spaceId, ideaId, { state: 'Planned' })
+    const updatedIdea = {
+      ...idea,
+      plannedFor: request.startsAt,
+      participants: request.participantUserIds?.length ? request.participantUserIds : idea.participants,
+    }
+    const index = ideas.findIndex((item) => item.id === ideaId && item.spaceId === spaceId)
+    if (index >= 0) ideas[index] = updatedIdea
+    return updatedIdea
+  },
   async getFolders(spaceId: string) {
     const spaceIdeas = ideas.filter((idea) => idea.spaceId === spaceId && idea.status !== 'archived')
     return folders.map((folder) => ({
@@ -371,11 +400,32 @@ export const mockApi = {
     }))
   },
   async getTags(spaceId: string) {
-    return Array.from(new Set(ideas.filter((idea) => idea.spaceId === spaceId).flatMap((idea) => idea.tags)))
+    return Array.from(new Set([...customTags, ...ideas.filter((idea) => idea.spaceId === spaceId).flatMap((idea) => idea.tags)]))
+  },
+  async createTag(spaceId: string, request: { name: string }) {
+    void spaceId
+    customTags.push(request.name)
+    return request.name
   },
   async getCategories(spaceId: string) {
     void spaceId
     return categories
+  },
+  async createCategory(spaceId: string, request: { name: string }) {
+    void spaceId
+    categories.push(request.name)
+    return request.name
+  },
+  async createFolder(spaceId: string, request: { name: string }) {
+    void spaceId
+    const folder: Folder = {
+      id: `folder-${Date.now()}`,
+      name: request.name,
+      count: 0,
+      color: '#7b8fda',
+    }
+    folders.push(folder)
+    return folder
   },
   async getPlan(spaceId: string) {
     return ideas.filter((idea) => idea.spaceId === spaceId && idea.status === 'planned')

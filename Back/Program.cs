@@ -35,6 +35,15 @@ builder.Services
             IssuerSigningKey = JwtTokenService.GetSecurityKey(jwtOptions.Secret),
             ClockSkew = TimeSpan.FromMinutes(1)
         };
+        options.Events = new JwtBearerEvents
+        {
+            OnChallenge = async context =>
+            {
+                context.HandleResponse();
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new ErrorResponse("Authentication is required."));
+            }
+        };
     });
 builder.Services.AddAuthorization();
 var storageProvider = StorageConfiguration.GetProvider(builder.Configuration);

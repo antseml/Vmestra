@@ -7,6 +7,9 @@ export const mockClient: DataClient = {
     return currentUser
   },
   getSpaces: mockApi.getSpaces,
+  async createSpace(request) {
+    return mockApi.createSpace(request)
+  },
   getSpace: mockApi.getSpace,
   getMembers: mockApi.getMembers,
   getIdeas: mockApi.getSpaceIdeas,
@@ -17,11 +20,27 @@ export const mockClient: DataClient = {
   async updateIdea(spaceId: string, ideaId: string, request: UpdateIdeaRequest) {
     return mockApi.updateIdea(spaceId, ideaId, request)
   },
-  archiveIdea: mockApi.archiveIdea,
-  restoreIdea: mockApi.restoreIdea,
+  async archiveIdea(spaceId: string, ideaId: string) {
+    return mockApi.archiveIdea(spaceId, ideaId)
+  },
+  async restoreIdea(spaceId: string, ideaId: string) {
+    return mockApi.restoreIdea(spaceId, ideaId)
+  },
+  async scheduleIdea(spaceId: string, ideaId: string, request) {
+    return mockApi.scheduleIdea(spaceId, ideaId, request)
+  },
   getFolders: mockApi.getFolders,
+  async createFolder(spaceId: string, request) {
+    return mockApi.createFolder(spaceId, request)
+  },
   getTags: mockApi.getTags,
+  async createTag(spaceId: string, request) {
+    return mockApi.createTag(spaceId, request)
+  },
   getCategories: mockApi.getCategories,
+  async createCategory(spaceId: string, request) {
+    return mockApi.createCategory(spaceId, request)
+  },
   getPlan: mockApi.getPlan,
   getHistory: mockApi.getSpaceHistory,
   getRecommendations: mockApi.getRecommendations,

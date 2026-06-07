@@ -1,18 +1,24 @@
 import type { View } from '../../appNavigation'
 
-const TOUR_STORAGE_KEY = 'vmestra-guided-tour-completed'
+const TOUR_STORAGE_KEY_PREFIX = 'vmestra-guided-tour-completed'
 
-export function shouldShowGuidedTour() {
+function getTourStorageKey(userId: string) {
+  return `${TOUR_STORAGE_KEY_PREFIX}:${userId}`
+}
+
+export function shouldShowGuidedTour(userId?: string) {
+  if (!userId) return false
   try {
-    return localStorage.getItem(TOUR_STORAGE_KEY) !== 'true'
+    return localStorage.getItem(getTourStorageKey(userId)) !== 'true'
   } catch {
     return true
   }
 }
 
-export function markGuidedTourCompleted() {
+export function markGuidedTourCompleted(userId?: string) {
+  if (!userId) return
   try {
-    localStorage.setItem(TOUR_STORAGE_KEY, 'true')
+    localStorage.setItem(getTourStorageKey(userId), 'true')
   } catch {
     // The tour can still close in restricted storage contexts.
   }

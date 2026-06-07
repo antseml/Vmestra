@@ -672,6 +672,36 @@ time {
   margin-bottom: 18px;
 }
 
+.dictionary-create-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.dictionary-create-grid label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dictionary-create-grid span {
+  display: flex;
+  gap: 8px;
+}
+
+.dictionary-create-grid input {
+  min-width: 0;
+  flex: 1;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
 .folder-tile {
   padding: 14px;
   box-shadow: none;
@@ -886,6 +916,7 @@ time {
   }
 
   .calendar-grid,
+  .dictionary-create-grid,
   .folder-grid,
   .metrics-row,
   .recommendation-list {
@@ -920,6 +951,7 @@ time {
 
   .metrics-row,
   .calendar-grid,
+  .dictionary-create-grid,
   .folder-grid,
   .recommendation-list {
     grid-template-columns: 1fr;

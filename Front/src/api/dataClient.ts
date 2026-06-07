@@ -1,4 +1,11 @@
-import type { CreateIdeaRequest, UpdateIdeaRequest } from './apiContract'
+import type {
+  CreateNamedItemRequest,
+  CreateIdeaRequest,
+  CreateSpaceRequest,
+  CreateTagRequest,
+  ScheduleIdeaRequest,
+  UpdateIdeaRequest,
+} from './apiContract'
 import { backendClient } from './backendClient'
 import { mockClient } from './mockClient'
 import type { Folder, HistoryEntry, Idea, Member, Recommendation, Space } from '../mock/vmestraData'
@@ -6,6 +13,7 @@ import type { Folder, HistoryEntry, Idea, Member, Recommendation, Space } from '
 export type DataClient = {
   getCurrentUser(): Promise<Member>
   getSpaces(userId?: string): Promise<Space[]>
+  createSpace(request: CreateSpaceRequest): Promise<Space>
   getSpace(spaceId: string): Promise<Space>
   getMembers(spaceId: string): Promise<Member[]>
   getIdeas(spaceId: string, options?: { includeArchived?: boolean }): Promise<Idea[]>
@@ -14,9 +22,13 @@ export type DataClient = {
   updateIdea(spaceId: string, ideaId: string, request: UpdateIdeaRequest): Promise<Idea>
   archiveIdea(spaceId: string, ideaId: string): Promise<Idea>
   restoreIdea(spaceId: string, ideaId: string): Promise<Idea>
+  scheduleIdea(spaceId: string, ideaId: string, request: ScheduleIdeaRequest): Promise<Idea>
   getFolders(spaceId: string): Promise<Folder[]>
+  createFolder(spaceId: string, request: CreateNamedItemRequest): Promise<Folder>
   getTags(spaceId: string): Promise<string[]>
+  createTag(spaceId: string, request: CreateTagRequest): Promise<string>
   getCategories(spaceId: string): Promise<string[]>
+  createCategory(spaceId: string, request: CreateNamedItemRequest): Promise<string>
   getPlan(spaceId: string, range?: { from?: string; to?: string }): Promise<Idea[]>
   getHistory(spaceId: string): Promise<HistoryEntry[]>
   getRecommendations(spaceId: string): Promise<Recommendation[]>

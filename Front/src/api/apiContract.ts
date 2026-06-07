@@ -3,6 +3,7 @@ export const API_CONTRACT_NOTES = {
   scopeRule: 'All idea-related requests must be scoped by spaceId.',
   firstIntegrationSet: [
     'GET /api/spaces/my',
+    'POST /api/spaces',
     'GET /api/spaces/{spaceId}/members',
     'GET /api/spaces/{spaceId}/ideas',
     'GET /api/spaces/{spaceId}/ideas/{ideaId}',
@@ -10,10 +11,14 @@ export const API_CONTRACT_NOTES = {
     'PATCH /api/spaces/{spaceId}/ideas/{ideaId}',
     'POST /api/spaces/{spaceId}/ideas/{ideaId}/archive',
     'POST /api/spaces/{spaceId}/ideas/{ideaId}/restore',
+    'POST /api/spaces/{spaceId}/ideas/{ideaId}/plans',
     'GET /api/spaces/{spaceId}/folders',
+    'POST /api/spaces/{spaceId}/folders',
     'GET /api/spaces/{spaceId}/tags',
+    'POST /api/spaces/{spaceId}/tags',
     'PATCH /api/spaces/{spaceId}/tags/{tagId}',
     'GET /api/spaces/{spaceId}/categories',
+    'POST /api/spaces/{spaceId}/categories',
     'PATCH /api/spaces/{spaceId}/categories/{categoryId}',
     'GET /api/spaces/{spaceId}/plan?from={isoDateTime}&to={isoDateTime}',
     'GET /api/spaces/{spaceId}/history',
@@ -45,6 +50,11 @@ export type ApiSpaceKind = 'Personal' | 'Group'
 export type ApiMemberRole = 'Admin' | 'Member'
 export type ApiTagSource = 'User' | 'System'
 
+export type CreateSpaceRequest = {
+  name: string
+  kind?: ApiSpaceKind
+}
+
 export type CreateIdeaRequest = {
   text: string
 }
@@ -63,7 +73,23 @@ export type UpdateIdeaRequest = {
 export type UpdateScheduledIdeaRequest = {
   state?: ApiScheduledIdeaState
   startsAt?: string
-  participantIds?: string[]
+  participantUserIds?: string[]
+  note?: string
+}
+
+export type ScheduleIdeaRequest = {
+  startsAt: string
+  endsAt?: string | null
+  participantUserIds?: string[]
+  note?: string | null
+}
+
+export type CreateNamedItemRequest = {
+  name: string
+}
+
+export type CreateTagRequest = CreateNamedItemRequest & {
+  source?: ApiTagSource
 }
 
 export type UpdateTagRequest = {

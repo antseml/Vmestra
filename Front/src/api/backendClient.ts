@@ -1,7 +1,7 @@
 ﻿import type { ApiIdeaState, ApiScheduledIdeaState, ApiSpaceKind, CreateIdeaRequest } from './apiContract'
 import { AuthRequiredError, authClient, getAuthToken, handleUnauthorized } from './authClient'
 import type { DataClient } from './dataClient'
-import type { UpdateIdeaRequest } from './apiContract'
+import type { CreateNamedItemRequest, CreateSpaceRequest, CreateTagRequest, ScheduleIdeaRequest, UpdateIdeaRequest } from './apiContract'
 import type { Folder, HistoryEntry, Idea, Member, Recommendation, Space, SpaceKind } from '../mock/vmestraData'
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -16,8 +16,8 @@ const FALLBACK_HISTORY_TITLE = 'Что уже было'
 export class ApiRequestError extends Error {
   status: number
 
-  constructor(status: number, statusText: string) {
-    super(`API ${status}: ${statusText}`)
+  constructor(status: number, message: string) {
+    super(message)
     this.name = 'ApiRequestError'
     this.status = status
   }
@@ -129,7 +129,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    throw new ApiRequestError(response.status, response.statusText)
+    let message = response.statusText || 'Не удалось выполнить запрос.'
+    try {
+      const errorBody = (await response.json()) as { message?: string; Message?: string }
+      message = errorBody.message ?? errorBody.Message ?? message
+    } catch {
+      // Some responses, like 403, can be empty.
+    }
+    throw new ApiRequestError(response.status, message)
   }
 
   return response.json() as Promise<T>
@@ -309,6 +316,13 @@ export const backendClient: DataClient = {
       }),
     )
   },
+  async createSpace(requestBody: CreateSpaceRequest) {
+    const space = await request<ApiSpace>('/api/spaces', {
+      method: 'POST',
+      body: JSON.stringify(requestBody),
+    })
+    return this.getSpace(space.id)
+  },
   async getSpace(spaceId: string) {
     const [space, usersById, members, ideas, history] = await Promise.all([
       request<ApiSpace>(`/api/spaces/${spaceId}`),
@@ -376,6 +390,22 @@ export const backendClient: DataClient = {
       }),
     )
   },
+  async scheduleIdea(spaceId: string, ideaId: string, requestBody: ScheduleIdeaRequest) {
+    const [schedule, ideas, refs] = await Promise.all([
+      request<ApiScheduledIdea>(`/api/spaces/${spaceId}/ideas/${ideaId}/plans`, {
+        method: 'POST',
+        body: JSON.stringify(requestBody),
+      }),
+      request<ApiIdea[]>(buildIdeasPath(spaceId, { includeArchived: true })),
+      getSpaceReferenceData(spaceId),
+    ])
+    const mappedIdea = mapScheduledIdea(schedule, new Map(ideas.map((idea) => [idea.id, idea])), {
+      ...refs,
+      plan: [schedule],
+    })
+    if (!mappedIdea) throw new ApiRequestError(404, 'Не удалось найти запланированную идею.')
+    return mappedIdea
+  },
   async getFolders(spaceId: string) {
     const [folders, ideas] = await Promise.all([
       request<ApiFolder[]>(`/api/spaces/${spaceId}/folders`),
@@ -387,11 +417,35 @@ export const backendClient: DataClient = {
       count: ideas.filter((idea) => idea.folderId === folder.id).length,
     }))
   },
+  async createFolder(spaceId: string, requestBody: CreateNamedItemRequest) {
+    return mapFolder(
+      await request<ApiFolder>(`/api/spaces/${spaceId}/folders`, {
+        method: 'POST',
+        body: JSON.stringify(requestBody),
+      }),
+    )
+  },
   async getTags(spaceId: string) {
     return (await request<ApiTag[]>(`/api/spaces/${spaceId}/tags`)).map((tag) => tag.name)
   },
+  async createTag(spaceId: string, requestBody: CreateTagRequest) {
+    return (
+      await request<ApiTag>(`/api/spaces/${spaceId}/tags`, {
+        method: 'POST',
+        body: JSON.stringify(requestBody),
+      })
+    ).name
+  },
   async getCategories(spaceId: string) {
     return (await request<ApiCategory[]>(`/api/spaces/${spaceId}/categories`)).map((category) => category.name)
+  },
+  async createCategory(spaceId: string, requestBody: CreateNamedItemRequest) {
+    return (
+      await request<ApiCategory>(`/api/spaces/${spaceId}/categories`, {
+        method: 'POST',
+        body: JSON.stringify(requestBody),
+      })
+    ).name
   },
   async getPlan(spaceId: string, range) {
     const [schedule, ideas, refs] = await Promise.all([

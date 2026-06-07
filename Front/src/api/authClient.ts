@@ -30,6 +30,16 @@ export class AuthRequiredError extends Error {
   }
 }
 
+export class AuthApiError extends Error {
+  status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'AuthApiError'
+    this.status = status
+  }
+}
+
 let unauthorizedHandler: (() => void) | undefined
 
 export function getAuthToken() {
@@ -67,13 +77,20 @@ async function authRequest<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   })
 
-  if (response.status === 401) {
+  if (response.status === 401 && path === '/api/auth/me') {
     handleUnauthorized()
     throw new AuthRequiredError()
   }
 
   if (!response.ok) {
-    throw new Error(`Auth ${response.status}: ${response.statusText}`)
+    let message = response.statusText || 'Не удалось выполнить запрос.'
+    try {
+      const errorBody = (await response.json()) as { message?: string; Message?: string }
+      message = errorBody.message ?? errorBody.Message ?? message
+    } catch {
+      // Some responses, like 403, can be empty.
+    }
+    throw new AuthApiError(response.status, message)
   }
 
   return response.json() as Promise<T>

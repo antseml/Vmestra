@@ -16,7 +16,7 @@ public static class HttpResultMapper
             AppErrorType.Validation => Results.BadRequest(new ErrorResponse(result.Error.Message)),
             AppErrorType.NotFound => Results.NotFound(new ErrorResponse(result.Error.Message)),
             AppErrorType.Conflict => Results.Conflict(new ErrorResponse(result.Error.Message)),
-            AppErrorType.Unauthorized => Results.Unauthorized(),
+            AppErrorType.Unauthorized => Results.Json(new ErrorResponse(result.Error.Message), statusCode: StatusCodes.Status401Unauthorized),
             AppErrorType.Forbidden => Results.Forbid(),
             _ => Results.Problem(result.Error.Message)
         };
