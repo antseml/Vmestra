@@ -867,11 +867,23 @@ function LibraryScreen({
   const [folderName, setFolderName] = useState('')
   const [tagName, setTagName] = useState('')
   const [categoryName, setCategoryName] = useState('')
-  const visibleIdeas = showArchived ? [...ideas, ...archivedIdeas] : ideas
+  const [selectedFolderName, setSelectedFolderName] = useState<string | null>(null)
+  const allVisibleIdeas = showArchived ? [...ideas, ...archivedIdeas] : ideas
+  const visibleIdeas = selectedFolderName
+    ? allVisibleIdeas.filter((idea) => idea.folder === selectedFolderName)
+    : allVisibleIdeas
+  const folderCounts = new Map<string, number>()
+  for (const idea of allVisibleIdeas) {
+    folderCounts.set(idea.folder, (folderCounts.get(idea.folder) ?? 0) + 1)
+  }
 
   function submitDictionaryItem(kind: 'folder' | 'tag' | 'category', name: string, reset: () => void) {
-    if (!name.trim()) return
-    onCreateDictionaryItem(kind, name)
+    const names = name
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+    if (names.length === 0) return
+    for (const itemName of names) onCreateDictionaryItem(kind, itemName)
     reset()
   }
 
@@ -885,12 +897,26 @@ function LibraryScreen({
           </div>
         </div>
         <div className="folder-grid">
+          <button
+            className={selectedFolderName === null ? 'folder-tile selected' : 'folder-tile'}
+            type="button"
+            onClick={() => setSelectedFolderName(null)}
+          >
+            <span />
+            <strong>Все идеи</strong>
+            <p>{allVisibleIdeas.length} идей</p>
+          </button>
           {folders.map((folder) => (
-            <div className="folder-tile" key={folder.id}>
+            <button
+              className={selectedFolderName === folder.name ? 'folder-tile selected' : 'folder-tile'}
+              key={folder.id}
+              type="button"
+              onClick={() => setSelectedFolderName(folder.name)}
+            >
               <span style={{ background: folder.color }} />
               <strong>{folder.name}</strong>
-              <p>{folder.count} идей</p>
-            </div>
+              <p>{folderCounts.get(folder.name) ?? 0} идей</p>
+            </button>
           ))}
         </div>
         <div className="dictionary-create-grid">
@@ -1128,11 +1154,13 @@ function PlanningScreen({
 }
 
 function CalendarScreen({ plannedIdeas }: { plannedIdeas: Idea[] }) {
+  const [weekOffset, setWeekOffset] = useState(0)
   const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
   const today = new Date()
   const monday = new Date(today)
   const mondayOffset = (today.getDay() + 6) % 7
   monday.setDate(today.getDate() - mondayOffset)
+  monday.setDate(monday.getDate() + weekOffset * 7)
   monday.setHours(0, 0, 0, 0)
   const weekDays = days.map((label, index) => {
     const date = new Date(monday)
@@ -1157,6 +1185,17 @@ function CalendarScreen({ plannedIdeas }: { plannedIdeas: Idea[] }) {
         <div>
           <span className="eyebrow">Календарный вид</span>
           <h2>Планы видны, но не доминируют над идеями</h2>
+        </div>
+        <div className="calendar-controls">
+          <button className="secondary-button" type="button" onClick={() => setWeekOffset((value) => value - 1)}>
+            Предыдущая
+          </button>
+          <button className="secondary-button" type="button" onClick={() => setWeekOffset(0)}>
+            Эта неделя
+          </button>
+          <button className="secondary-button" type="button" onClick={() => setWeekOffset((value) => value + 1)}>
+            Следующая
+          </button>
         </div>
       </div>
       <div className="calendar-grid">
@@ -1357,9 +1396,15 @@ function IdeaList({
   }
 
   function addDraftTag() {
-    const tagName = editTagInput.trim()
-    if (!tagName || editDraft.tagNames.includes(tagName)) return
-    setEditDraft((draft) => ({ ...draft, tagNames: [...draft.tagNames, tagName] }))
+    const tagNames = editTagInput
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+    if (tagNames.length === 0) return
+    setEditDraft((draft) => ({
+      ...draft,
+      tagNames: Array.from(new Set([...draft.tagNames, ...tagNames])),
+    }))
     setEditTagInput('')
   }
 
@@ -1431,7 +1476,7 @@ function IdeaList({
                     <span className="inline-control">
                       <input
                         list={`tag-options-${idea.id}`}
-                        placeholder="Найти или добавить тег"
+                        placeholder="Найти или добавить тег, можно несколько через запятую"
                         value={editTagInput}
                         onChange={(event) => setEditTagInput(event.target.value)}
                         onKeyDown={(event) => {
@@ -1474,6 +1519,7 @@ function IdeaList({
                 </>
               )}
               <div className="tag-row">
+                {idea.category && idea.category !== 'Идея' && <span className="tag category-tag">{idea.category}</span>}
                 {idea.tags.map((tag) => (
                   <span className="tag" key={tag}>
                     {tag}

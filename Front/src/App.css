@@ -617,6 +617,12 @@ time {
   font-size: 12px;
 }
 
+.category-tag {
+  color: var(--text);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent-2) 16%, var(--panel));
+}
+
 .idea-edit-form {
   display: grid;
   gap: 10px;
@@ -737,8 +743,16 @@ time {
 }
 
 .folder-tile {
+  width: 100%;
   padding: 14px;
+  color: var(--text);
+  text-align: left;
   box-shadow: none;
+}
+
+.folder-tile.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
 }
 
 .folder-tile span {
@@ -798,6 +812,13 @@ time {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 10px;
+}
+
+.calendar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .calendar-day {
