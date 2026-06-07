@@ -17,9 +17,11 @@ public interface ISpaceRepository
     bool Exists(Guid spaceId);
     IReadOnlyCollection<Space> GetSpaces(Guid? userId);
     Space? GetSpace(Guid spaceId);
-    Space CreateSpace(CreateSpaceRequest request);
+    Space CreateSpace(CreateSpaceRequest request, Guid createdByUserId);
+    Space EnsurePersonalSpace(Guid userId);
     Space? UpdateSpace(Guid spaceId, UpdateSpaceRequest request);
     IReadOnlyCollection<SpaceMember> GetMembers(Guid spaceId);
+    SpaceMember? GetMember(Guid spaceId, Guid userId);
     SpaceMember? AddMember(Guid spaceId, AddSpaceMemberRequest request);
     SpaceMember? UpdateMember(Guid spaceId, Guid memberId, UpdateSpaceMemberRequest request);
     bool RemoveMember(Guid spaceId, Guid memberId);
@@ -29,7 +31,7 @@ public interface IIdeaRepository
 {
     IReadOnlyCollection<Idea> GetIdeas(Guid spaceId, Guid? folderId, Guid? tagId, Guid? categoryId, IdeaState? state, bool includeArchived);
     Idea? GetIdea(Guid spaceId, Guid ideaId);
-    Idea? CreateIdea(Guid spaceId, CreateIdeaRequest request);
+    Idea? CreateIdea(Guid spaceId, CreateIdeaRequest request, Guid createdByUserId);
     Idea? UpdateIdea(Guid spaceId, Guid ideaId, UpdateIdeaRequest request);
     void SetIdeaState(Guid spaceId, Guid ideaId, IdeaState state);
 }
@@ -53,7 +55,7 @@ public interface IClassificationRepository
 public interface IPlanningRepository
 {
     IReadOnlyCollection<ScheduledIdea> GetSchedule(Guid spaceId, DateTimeOffset? from, DateTimeOffset? to);
-    ScheduledIdea? ScheduleIdea(Guid spaceId, Guid ideaId, ScheduleIdeaRequest request);
+    ScheduledIdea? ScheduleIdea(Guid spaceId, Guid ideaId, ScheduleIdeaRequest request, Guid createdByUserId);
     ScheduledIdea? UpdateSchedule(Guid spaceId, Guid scheduledIdeaId, UpdateScheduledIdeaRequest request);
     bool HasActiveFuturePlan(Guid spaceId, Guid ideaId, DateTimeOffset now);
 }
@@ -61,12 +63,12 @@ public interface IPlanningRepository
 public interface IHistoryRepository
 {
     IReadOnlyCollection<HistoryEntry> GetHistory(Guid spaceId, Guid? ideaId);
-    HistoryEntry? CreateHistoryEntry(Guid spaceId, CreateHistoryEntryRequest request);
+    HistoryEntry? CreateHistoryEntry(Guid spaceId, CreateHistoryEntryRequest request, Guid createdByUserId);
     HistoryEntry? UpdateHistoryEntry(Guid spaceId, Guid entryId, UpdateHistoryEntryRequest request);
 }
 
 public interface ICommentRepository
 {
     IReadOnlyCollection<Comment> GetComments(Guid spaceId, Guid ideaId);
-    Comment? AddComment(Guid spaceId, Guid ideaId, CreateCommentRequest request);
+    Comment? AddComment(Guid spaceId, Guid ideaId, CreateCommentRequest request, Guid createdByUserId);
 }

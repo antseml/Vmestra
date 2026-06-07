@@ -2,7 +2,7 @@ export const API_CONTRACT_NOTES = {
   source: 'Backend runtime API + OpenAPI in development',
   scopeRule: 'All idea-related requests must be scoped by spaceId.',
   firstIntegrationSet: [
-    'GET /api/spaces?userId={userId}',
+    'GET /api/spaces/my',
     'GET /api/spaces/{spaceId}/members',
     'GET /api/spaces/{spaceId}/ideas',
     'POST /api/spaces/{spaceId}/ideas',

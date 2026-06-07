@@ -17,6 +17,7 @@ public static class HttpResultMapper
             AppErrorType.NotFound => Results.NotFound(new ErrorResponse(result.Error.Message)),
             AppErrorType.Conflict => Results.Conflict(new ErrorResponse(result.Error.Message)),
             AppErrorType.Unauthorized => Results.Unauthorized(),
+            AppErrorType.Forbidden => Results.Forbid(),
             _ => Results.Problem(result.Error.Message)
         };
     }

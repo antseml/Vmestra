@@ -12,6 +12,16 @@ const FALLBACK_FOLDER = 'Входящие'
 const FALLBACK_CATEGORY = 'Идея'
 const FALLBACK_HISTORY_TITLE = 'Что уже было'
 
+export class ApiRequestError extends Error {
+  status: number
+
+  constructor(status: number, statusText: string) {
+    super(`API ${status}: ${statusText}`)
+    this.name = 'ApiRequestError'
+    this.status = status
+  }
+}
+
 type ApiUser = {
   id: string
   displayName: string
@@ -118,7 +128,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    throw new Error(`API ${response.status}: ${response.statusText}`)
+    throw new ApiRequestError(response.status, response.statusText)
   }
 
   return response.json() as Promise<T>
@@ -269,8 +279,9 @@ export const backendClient: DataClient = {
   async getCurrentUser() {
     return userToMember(await authClient.me(), 'Admin')
   },
-  async getSpaces(userId: string) {
-    const [spaces, usersById] = await Promise.all([request<ApiSpace[]>(`/api/spaces?userId=${encodeURIComponent(userId)}`), getUsersById()])
+  async getSpaces() {
+    const currentUser = await authClient.me()
+    const [spaces, usersById] = await Promise.all([request<ApiSpace[]>('/api/spaces/my'), getUsersById()])
 
     return Promise.all(
       spaces.map(async (space) => {
@@ -280,7 +291,7 @@ export const backendClient: DataClient = {
           request<ApiHistoryEntry[]>(`/api/spaces/${space.id}/history`),
         ])
 
-        return mapSpace(space, { members, usersById, ideas, history, currentUserId: userId })
+        return mapSpace(space, { members, usersById, ideas, history, currentUserId: currentUser.id })
       }),
     )
   },

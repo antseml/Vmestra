@@ -5,7 +5,7 @@ import type { Folder, HistoryEntry, Idea, Member, Recommendation, Space } from '
 
 export type DataClient = {
   getCurrentUser(): Promise<Member>
-  getSpaces(userId: string): Promise<Space[]>
+  getSpaces(userId?: string): Promise<Space[]>
   getSpace(spaceId: string): Promise<Space>
   getMembers(spaceId: string): Promise<Member[]>
   getIdeas(spaceId: string): Promise<Idea[]>

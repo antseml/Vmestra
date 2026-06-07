@@ -77,6 +77,7 @@ builder.Services.AddScoped<PlanningService>();
 builder.Services.AddScoped<HistoryService>();
 builder.Services.AddScoped<CommentService>();
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddSingleton<CurrentUserAccessor>();
 builder.Services.AddSingleton<PasswordHasher>();
 builder.Services.AddSingleton<JwtTokenService>();
 

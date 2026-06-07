@@ -6,7 +6,7 @@ using Back.Application.Security;
 
 namespace Back.Application.Services;
 
-public sealed class AuthService(IUserRepository users, PasswordHasher passwordHasher, JwtTokenService tokens)
+public sealed class AuthService(IUserRepository users, ISpaceRepository spaces, PasswordHasher passwordHasher, JwtTokenService tokens)
 {
     public AppResult<AuthResponse> Register(RegisterRequest request)
     {
@@ -17,6 +17,7 @@ public sealed class AuthService(IUserRepository users, PasswordHasher passwordHa
         if (users.GetUserByEmail(email) is not null) return AppResult<AuthResponse>.Conflict("User with this email already exists.");
 
         var user = users.CreateUser(email, request.DisplayName.Trim(), passwordHasher.Hash(request.Password));
+        spaces.EnsurePersonalSpace(user.Id);
         var token = tokens.Issue(user);
         return AppResult<AuthResponse>.Ok(new AuthResponse(token.AccessToken, token.ExpiresAt, user.ToCurrentUserResponse()));
     }

@@ -11,8 +11,8 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useState, type ElementType, type FormEvent } from 'react'
 import './App.css'
-import { DEFAULT_DEMO_USER_ID } from './api/apiContract'
 import { AuthRequiredError, authClient, setUnauthorizedHandler, type AuthUser } from './api/authClient'
+import { ApiRequestError } from './api/backendClient'
 import { dataClient, dataSourceLabel, isBackendDataSource } from './api/dataClient'
 import { type View } from './appNavigation'
 import { AppLayout } from './components/AppLayout'
@@ -74,7 +74,7 @@ function App() {
 
       try {
         const user = await dataClient.getCurrentUser()
-        const nextSpaces = await dataClient.getSpaces(user.id || DEFAULT_DEMO_USER_ID)
+        const nextSpaces = await dataClient.getSpaces(isBackendDataSource ? undefined : user.id)
 
         if (!isMounted) return
 
@@ -87,6 +87,10 @@ function App() {
         if (!isMounted) return
         if (error instanceof AuthRequiredError) {
           setAuthRequired(true)
+          return
+        }
+        if (error instanceof ApiRequestError && error.status === 403) {
+          setLoadError('Недостаточно прав для загрузки пространств.')
           return
         }
         setLoadError('Не удалось загрузить пространства. Проверьте источник данных и попробуйте снова.')
@@ -147,6 +151,19 @@ function App() {
         if (!isMounted) return
         if (error instanceof AuthRequiredError) {
           setAuthRequired(true)
+          return
+        }
+        if (error instanceof ApiRequestError && error.status === 404) {
+          setActiveView('spaces')
+          setSpaceIdeas([])
+          setFolders([])
+          setCategories([])
+          setSpaceHistory([])
+          setRecommendations([])
+          return
+        }
+        if (error instanceof ApiRequestError && error.status === 403) {
+          setLoadError('Недостаточно прав для этого пространства.')
           return
         }
         setLoadError('Не удалось загрузить данные пространства. Попробуйте обновить экран.')

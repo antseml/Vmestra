@@ -36,7 +36,7 @@ public sealed class PostgresUserRepository(VmestraDbContext db) : IUserRepositor
     }
 }
 
-public sealed class PostgresSpaceRepository(VmestraDbContext db, IUserRepository users) : ISpaceRepository
+public sealed class PostgresSpaceRepository(VmestraDbContext db) : ISpaceRepository
 {
     public bool Exists(Guid spaceId) => db.Spaces.Any(space => space.Id == spaceId);
 
@@ -52,13 +52,29 @@ public sealed class PostgresSpaceRepository(VmestraDbContext db, IUserRepository
 
     public Space? GetSpace(Guid spaceId) => db.Spaces.AsNoTracking().SingleOrDefault(space => space.Id == spaceId)?.ToDomain();
 
-    public Space CreateSpace(CreateSpaceRequest request)
+    public Space CreateSpace(CreateSpaceRequest request, Guid createdByUserId)
     {
         var now = DateTimeOffset.UtcNow;
-        var creatorId = request.CreatedByUserId ?? users.EnsureDemoUser().Id;
-        var space = new SpaceEntity { Id = Guid.NewGuid(), Kind = request.Kind, Name = request.Name.Trim(), State = SpaceState.Active, CreatedByUserId = creatorId, CreatedAt = now, UpdatedAt = now };
+        var space = new SpaceEntity { Id = Guid.NewGuid(), Kind = request.Kind, Name = request.Name.Trim(), State = SpaceState.Active, CreatedByUserId = createdByUserId, CreatedAt = now, UpdatedAt = now };
         db.Spaces.Add(space);
-        db.SpaceMembers.Add(new SpaceMemberEntity { Id = Guid.NewGuid(), SpaceId = space.Id, UserId = creatorId, Role = SpaceMemberRole.Admin, JoinedAt = now });
+        db.SpaceMembers.Add(new SpaceMemberEntity { Id = Guid.NewGuid(), SpaceId = space.Id, UserId = createdByUserId, Role = SpaceMemberRole.Admin, JoinedAt = now });
+        db.SaveChanges();
+        return space.ToDomain();
+    }
+
+    public Space EnsurePersonalSpace(Guid userId)
+    {
+        var existing = db.Spaces
+            .AsNoTracking()
+            .Where(space => space.Kind == SpaceKind.Personal && db.SpaceMembers.Any(member => member.SpaceId == space.Id && member.UserId == userId))
+            .OrderBy(space => space.CreatedAt)
+            .FirstOrDefault();
+        if (existing is not null) return existing.ToDomain();
+
+        var now = DateTimeOffset.UtcNow;
+        var space = new SpaceEntity { Id = Guid.NewGuid(), Kind = SpaceKind.Personal, Name = "Личное пространство", State = SpaceState.Active, CreatedByUserId = userId, CreatedAt = now, UpdatedAt = now };
+        db.Spaces.Add(space);
+        db.SpaceMembers.Add(new SpaceMemberEntity { Id = Guid.NewGuid(), SpaceId = space.Id, UserId = userId, Role = SpaceMemberRole.Admin, JoinedAt = now });
         db.SaveChanges();
         return space.ToDomain();
     }
@@ -75,6 +91,8 @@ public sealed class PostgresSpaceRepository(VmestraDbContext db, IUserRepository
     }
 
     public IReadOnlyCollection<SpaceMember> GetMembers(Guid spaceId) => db.SpaceMembers.AsNoTracking().Where(member => member.SpaceId == spaceId).Select(member => member.ToDomain()).ToArray();
+
+    public SpaceMember? GetMember(Guid spaceId, Guid userId) => db.SpaceMembers.AsNoTracking().SingleOrDefault(member => member.SpaceId == spaceId && member.UserId == userId)?.ToDomain();
 
     public SpaceMember? AddMember(Guid spaceId, AddSpaceMemberRequest request)
     {
@@ -106,7 +124,7 @@ public sealed class PostgresSpaceRepository(VmestraDbContext db, IUserRepository
     }
 }
 
-public sealed class PostgresIdeaRepository(VmestraDbContext db, IUserRepository users, IHistoryRepository history) : IIdeaRepository
+public sealed class PostgresIdeaRepository(VmestraDbContext db, IHistoryRepository history) : IIdeaRepository
 {
     public IReadOnlyCollection<Idea> GetIdeas(Guid spaceId, Guid? folderId, Guid? tagId, Guid? categoryId, IdeaState? state, bool includeArchived)
     {
@@ -121,7 +139,7 @@ public sealed class PostgresIdeaRepository(VmestraDbContext db, IUserRepository 
 
     public Idea? GetIdea(Guid spaceId, Guid ideaId) => db.Ideas.AsNoTracking().Include(idea => idea.IdeaTags).SingleOrDefault(idea => idea.SpaceId == spaceId && idea.Id == ideaId)?.ToDomain();
 
-    public Idea? CreateIdea(Guid spaceId, CreateIdeaRequest request)
+    public Idea? CreateIdea(Guid spaceId, CreateIdeaRequest request, Guid createdByUserId)
     {
         if (!db.Spaces.Any(space => space.Id == spaceId)) return null;
         var tagIds = (request.TagIds ?? []).Distinct().ToArray();
@@ -132,7 +150,7 @@ public sealed class PostgresIdeaRepository(VmestraDbContext db, IUserRepository 
         {
             Id = Guid.NewGuid(),
             SpaceId = spaceId,
-            CreatedByUserId = request.CreatedByUserId ?? users.EnsureDemoUser().Id,
+            CreatedByUserId = createdByUserId,
             Text = request.Text.Trim(),
             Title = BlankToNull(request.Title),
             Description = BlankToNull(request.Description),
@@ -146,7 +164,7 @@ public sealed class PostgresIdeaRepository(VmestraDbContext db, IUserRepository 
         };
         db.Ideas.Add(idea);
         db.SaveChanges();
-        history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(idea.Id, idea.CreatedByUserId, "Идея добавлена", null, null, now));
+        history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(idea.Id, idea.CreatedByUserId, "Идея добавлена", null, null, now), idea.CreatedByUserId);
         return GetIdea(spaceId, idea.Id);
     }
 
@@ -171,7 +189,7 @@ public sealed class PostgresIdeaRepository(VmestraDbContext db, IUserRepository 
         }
         idea.UpdatedAt = DateTimeOffset.UtcNow;
         db.SaveChanges();
-        history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, idea.CreatedByUserId, "Идея обновлена", null, null, DateTimeOffset.UtcNow));
+        history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, idea.CreatedByUserId, "Идея обновлена", null, null, DateTimeOffset.UtcNow), idea.CreatedByUserId);
         return GetIdea(spaceId, ideaId);
     }
 
@@ -300,7 +318,7 @@ public sealed class PostgresPlanningRepository(VmestraDbContext db, IHistoryRepo
         return query.OrderBy(item => item.StartsAt).Select(item => item.ToDomain()).ToArray();
     }
 
-    public ScheduledIdea? ScheduleIdea(Guid spaceId, Guid ideaId, ScheduleIdeaRequest request)
+    public ScheduledIdea? ScheduleIdea(Guid spaceId, Guid ideaId, ScheduleIdeaRequest request, Guid createdByUserId)
     {
         var idea = db.Ideas.SingleOrDefault(value => value.SpaceId == spaceId && value.Id == ideaId);
         if (idea is null) return null;
@@ -313,7 +331,7 @@ public sealed class PostgresPlanningRepository(VmestraDbContext db, IHistoryRepo
             Id = Guid.NewGuid(),
             SpaceId = spaceId,
             IdeaId = ideaId,
-            CreatedByUserId = request.CreatedByUserId ?? idea.CreatedByUserId,
+            CreatedByUserId = createdByUserId,
             StartsAt = request.StartsAt,
             EndsAt = request.EndsAt,
             State = ScheduledIdeaState.Planned,
@@ -326,7 +344,7 @@ public sealed class PostgresPlanningRepository(VmestraDbContext db, IHistoryRepo
         idea.State = IdeaState.Planned;
         idea.UpdatedAt = now;
         db.SaveChanges();
-        history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, scheduled.CreatedByUserId, "Идея запланирована", null, null, request.StartsAt));
+        history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, scheduled.CreatedByUserId, "Идея запланирована", null, null, request.StartsAt), scheduled.CreatedByUserId);
         return GetSchedule(spaceId, null, null).Single(item => item.Id == scheduled.Id);
     }
 
@@ -406,7 +424,7 @@ public sealed class PostgresPlanningRepository(VmestraDbContext db, IHistoryRepo
     private static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
-public sealed class PostgresHistoryRepository(VmestraDbContext db, IUserRepository users) : IHistoryRepository
+public sealed class PostgresHistoryRepository(VmestraDbContext db) : IHistoryRepository
 {
     public IReadOnlyCollection<HistoryEntry> GetHistory(Guid spaceId, Guid? ideaId)
     {
@@ -415,12 +433,12 @@ public sealed class PostgresHistoryRepository(VmestraDbContext db, IUserReposito
         return query.OrderByDescending(entry => entry.HappenedAt).Select(entry => entry.ToDomain()).ToArray();
     }
 
-    public HistoryEntry? CreateHistoryEntry(Guid spaceId, CreateHistoryEntryRequest request)
+    public HistoryEntry? CreateHistoryEntry(Guid spaceId, CreateHistoryEntryRequest request, Guid createdByUserId)
     {
         if (!db.Spaces.Any(space => space.Id == spaceId)) return null;
         if (request.IdeaId is not null && !db.Ideas.Any(idea => idea.SpaceId == spaceId && idea.Id == request.IdeaId)) return null;
         var now = DateTimeOffset.UtcNow;
-        var entry = new HistoryEntryEntity { Id = Guid.NewGuid(), SpaceId = spaceId, IdeaId = request.IdeaId, CreatedByUserId = request.CreatedByUserId ?? users.EnsureDemoUser().Id, Title = request.Title.Trim(), PublicNote = BlankToNull(request.PublicNote), PrivateNote = BlankToNull(request.PrivateNote), HappenedAt = request.HappenedAt ?? now, CreatedAt = now, UpdatedAt = now };
+        var entry = new HistoryEntryEntity { Id = Guid.NewGuid(), SpaceId = spaceId, IdeaId = request.IdeaId, CreatedByUserId = createdByUserId, Title = request.Title.Trim(), PublicNote = BlankToNull(request.PublicNote), PrivateNote = BlankToNull(request.PrivateNote), HappenedAt = request.HappenedAt ?? now, CreatedAt = now, UpdatedAt = now };
         db.HistoryEntries.Add(entry);
         db.SaveChanges();
         return entry.ToDomain();
@@ -442,15 +460,15 @@ public sealed class PostgresHistoryRepository(VmestraDbContext db, IUserReposito
     private static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
-public sealed class PostgresCommentRepository(VmestraDbContext db, IUserRepository users) : ICommentRepository
+public sealed class PostgresCommentRepository(VmestraDbContext db) : ICommentRepository
 {
     public IReadOnlyCollection<Comment> GetComments(Guid spaceId, Guid ideaId) => db.Comments.AsNoTracking().Where(comment => comment.SpaceId == spaceId && comment.IdeaId == ideaId).OrderBy(comment => comment.CreatedAt).Select(comment => comment.ToDomain()).ToArray();
 
-    public Comment? AddComment(Guid spaceId, Guid ideaId, CreateCommentRequest request)
+    public Comment? AddComment(Guid spaceId, Guid ideaId, CreateCommentRequest request, Guid createdByUserId)
     {
         if (!db.Ideas.Any(idea => idea.SpaceId == spaceId && idea.Id == ideaId)) return null;
         var now = DateTimeOffset.UtcNow;
-        var comment = new CommentEntity { Id = Guid.NewGuid(), SpaceId = spaceId, IdeaId = ideaId, CreatedByUserId = request.CreatedByUserId ?? users.EnsureDemoUser().Id, Text = request.Text.Trim(), CreatedAt = now, UpdatedAt = now };
+        var comment = new CommentEntity { Id = Guid.NewGuid(), SpaceId = spaceId, IdeaId = ideaId, CreatedByUserId = createdByUserId, Text = request.Text.Trim(), CreatedAt = now, UpdatedAt = now };
         db.Comments.Add(comment);
         db.SaveChanges();
         return comment.ToDomain();

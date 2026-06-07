@@ -13,10 +13,9 @@ public static class VmestraEndpoints
             service.Register(request).ToCreatedHttpResult(response => $"/api/users/{response.User.Id}"));
         auth.MapPost("/login", (AuthService service, LoginRequest request) =>
             service.Login(request).ToHttpResult());
-        auth.MapGet("/me", (AuthService service, ClaimsPrincipal principal) =>
+        auth.MapGet("/me", (AuthService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal) =>
         {
-            var userIdValue = principal.FindFirstValue(ClaimTypes.NameIdentifier);
-            return Guid.TryParse(userIdValue, out var userId)
+            return currentUser.GetUserId(principal) is { } userId
                 ? service.GetCurrentUser(userId).ToHttpResult()
                 : Results.Unauthorized();
         }).RequireAuthorization();
@@ -26,81 +25,109 @@ public static class VmestraEndpoints
 
         var spaces = app.MapGroup("/api/spaces").WithTags("Spaces");
         spaces.MapGet("/", (SpaceService service, Guid? userId) => service.GetSpaces(userId).ToHttpResult());
-        spaces.MapPost("/", (SpaceService service, CreateSpaceRequest request) =>
-            service.CreateSpace(request).ToCreatedHttpResult(space => $"/api/spaces/{space.Id}"));
-        spaces.MapGet("/{spaceId:guid}", (SpaceService service, Guid spaceId) =>
-            service.GetSpace(spaceId).ToHttpResult());
-        spaces.MapPatch("/{spaceId:guid}", (SpaceService service, Guid spaceId, UpdateSpaceRequest request) =>
-            service.UpdateSpace(spaceId, request).ToHttpResult());
-        spaces.MapPost("/{spaceId:guid}/archive", (SpaceService service, Guid spaceId) =>
-            service.ArchiveSpace(spaceId).ToHttpResult());
+        spaces.MapGet("/my", (SpaceService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal) =>
+            currentUser.GetUserId(principal) is { } userId ? service.GetMySpaces(userId).ToHttpResult() : Results.Unauthorized())
+            .RequireAuthorization();
 
-        var members = spaces.MapGroup("/{spaceId:guid}/members").WithTags("Space members");
-        members.MapGet("/", (SpaceService service, Guid spaceId) => service.GetMembers(spaceId).ToHttpResult());
-        members.MapPost("/", (SpaceService service, Guid spaceId, AddSpaceMemberRequest request) =>
-            service.AddMember(spaceId, request).ToCreatedHttpResult(member => $"/api/spaces/{spaceId}/members/{member.Id}"));
-        members.MapPatch("/{memberId:guid}", (SpaceService service, Guid spaceId, Guid memberId, UpdateSpaceMemberRequest request) =>
-            service.UpdateMember(spaceId, memberId, request).ToHttpResult());
-        members.MapDelete("/{memberId:guid}", (SpaceService service, Guid spaceId, Guid memberId) =>
-            service.RemoveMember(spaceId, memberId).ToNoContentResult());
+        var protectedSpaces = spaces.MapGroup("").RequireAuthorization();
+        protectedSpaces.MapPost("/", (SpaceService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, CreateSpaceRequest request) =>
+            currentUser.GetUserId(principal) is { } userId
+                ? service.CreateSpace(userId, request).ToCreatedHttpResult(space => $"/api/spaces/{space.Id}")
+                : Results.Unauthorized());
+        protectedSpaces.MapGet("/{spaceId:guid}", (SpaceService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.GetSpace(userId, spaceId).ToHttpResult() : Results.Unauthorized());
+        protectedSpaces.MapPatch("/{spaceId:guid}", (SpaceService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, UpdateSpaceRequest request) =>
+            currentUser.GetUserId(principal) is { } userId ? service.UpdateSpace(userId, spaceId, request).ToHttpResult() : Results.Unauthorized());
+        protectedSpaces.MapPost("/{spaceId:guid}/archive", (SpaceService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.ArchiveSpace(userId, spaceId).ToHttpResult() : Results.Unauthorized());
 
-        var ideas = spaces.MapGroup("/{spaceId:guid}/ideas").WithTags("Ideas");
-        ideas.MapGet("/", (IdeaService service, Guid spaceId, Guid? folderId, Guid? tagId, Guid? categoryId, IdeaState? state, bool includeArchived = false) =>
-            service.GetIdeas(spaceId, folderId, tagId, categoryId, state, includeArchived).ToHttpResult());
-        ideas.MapPost("/", (IdeaService service, Guid spaceId, CreateIdeaRequest request) =>
-            service.CreateIdea(spaceId, request).ToCreatedHttpResult(idea => $"/api/spaces/{spaceId}/ideas/{idea.Id}"));
-        ideas.MapGet("/{ideaId:guid}", (IdeaService service, Guid spaceId, Guid ideaId) =>
-            service.GetIdea(spaceId, ideaId).ToHttpResult());
-        ideas.MapPatch("/{ideaId:guid}", (IdeaService service, Guid spaceId, Guid ideaId, UpdateIdeaRequest request) =>
-            service.UpdateIdea(spaceId, ideaId, request).ToHttpResult());
+        var members = protectedSpaces.MapGroup("/{spaceId:guid}/members").WithTags("Space members");
+        members.MapGet("/", (SpaceService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.GetMembers(userId, spaceId).ToHttpResult() : Results.Unauthorized());
+        members.MapPost("/", (SpaceService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, AddSpaceMemberRequest request) =>
+            currentUser.GetUserId(principal) is { } userId
+                ? service.AddMember(userId, spaceId, request).ToCreatedHttpResult(member => $"/api/spaces/{spaceId}/members/{member.Id}")
+                : Results.Unauthorized());
+        members.MapPatch("/{memberId:guid}", (SpaceService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid memberId, UpdateSpaceMemberRequest request) =>
+            currentUser.GetUserId(principal) is { } userId ? service.UpdateMember(userId, spaceId, memberId, request).ToHttpResult() : Results.Unauthorized());
+        members.MapDelete("/{memberId:guid}", (SpaceService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid memberId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.RemoveMember(userId, spaceId, memberId).ToNoContentResult() : Results.Unauthorized());
 
-        ideas.MapGet("/{ideaId:guid}/comments", (CommentService service, Guid spaceId, Guid ideaId) =>
-            service.GetComments(spaceId, ideaId).ToHttpResult());
-        ideas.MapPost("/{ideaId:guid}/comments", (CommentService service, Guid spaceId, Guid ideaId, CreateCommentRequest request) =>
-            service.AddComment(spaceId, ideaId, request).ToCreatedHttpResult(comment => $"/api/spaces/{spaceId}/ideas/{ideaId}/comments/{comment.Id}"));
+        var ideas = protectedSpaces.MapGroup("/{spaceId:guid}/ideas").WithTags("Ideas");
+        ideas.MapGet("/", (IdeaService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid? folderId, Guid? tagId, Guid? categoryId, IdeaState? state, bool includeArchived = false) =>
+            currentUser.GetUserId(principal) is { } userId ? service.GetIdeas(userId, spaceId, folderId, tagId, categoryId, state, includeArchived).ToHttpResult() : Results.Unauthorized());
+        ideas.MapPost("/", (IdeaService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, CreateIdeaRequest request) =>
+            currentUser.GetUserId(principal) is { } userId
+                ? service.CreateIdea(userId, spaceId, request).ToCreatedHttpResult(idea => $"/api/spaces/{spaceId}/ideas/{idea.Id}")
+                : Results.Unauthorized());
+        ideas.MapGet("/{ideaId:guid}", (IdeaService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid ideaId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.GetIdea(userId, spaceId, ideaId).ToHttpResult() : Results.Unauthorized());
+        ideas.MapPatch("/{ideaId:guid}", (IdeaService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid ideaId, UpdateIdeaRequest request) =>
+            currentUser.GetUserId(principal) is { } userId ? service.UpdateIdea(userId, spaceId, ideaId, request).ToHttpResult() : Results.Unauthorized());
 
-        ideas.MapPost("/{ideaId:guid}/plans", (PlanningService service, Guid spaceId, Guid ideaId, ScheduleIdeaRequest request) =>
-            service.ScheduleIdea(spaceId, ideaId, request).ToCreatedHttpResult(plan => $"/api/spaces/{spaceId}/plan/{plan.Id}"));
+        ideas.MapGet("/{ideaId:guid}/comments", (CommentService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid ideaId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.GetComments(userId, spaceId, ideaId).ToHttpResult() : Results.Unauthorized());
+        ideas.MapPost("/{ideaId:guid}/comments", (CommentService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid ideaId, CreateCommentRequest request) =>
+            currentUser.GetUserId(principal) is { } userId
+                ? service.AddComment(userId, spaceId, ideaId, request).ToCreatedHttpResult(comment => $"/api/spaces/{spaceId}/ideas/{ideaId}/comments/{comment.Id}")
+                : Results.Unauthorized());
 
-        var folders = spaces.MapGroup("/{spaceId:guid}/folders").WithTags("Folders");
-        folders.MapGet("/", (ClassificationService service, Guid spaceId) => service.GetFolders(spaceId).ToHttpResult());
-        folders.MapPost("/", (ClassificationService service, Guid spaceId, CreateNamedItemRequest request) =>
-            service.CreateFolder(spaceId, request).ToCreatedHttpResult(folder => $"/api/spaces/{spaceId}/folders/{folder.Id}"));
-        folders.MapPatch("/{folderId:guid}", (ClassificationService service, Guid spaceId, Guid folderId, UpdateNamedItemRequest request) =>
-            service.UpdateFolder(spaceId, folderId, request).ToHttpResult());
-        folders.MapDelete("/{folderId:guid}", (ClassificationService service, Guid spaceId, Guid folderId) =>
-            service.RemoveFolder(spaceId, folderId).ToNoContentResult());
+        ideas.MapPost("/{ideaId:guid}/plans", (PlanningService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid ideaId, ScheduleIdeaRequest request) =>
+            currentUser.GetUserId(principal) is { } userId
+                ? service.ScheduleIdea(userId, spaceId, ideaId, request).ToCreatedHttpResult(plan => $"/api/spaces/{spaceId}/plan/{plan.Id}")
+                : Results.Unauthorized());
 
-        var tags = spaces.MapGroup("/{spaceId:guid}/tags").WithTags("Tags");
-        tags.MapGet("/", (ClassificationService service, Guid spaceId) => service.GetTags(spaceId).ToHttpResult());
-        tags.MapPost("/", (ClassificationService service, Guid spaceId, CreateTagRequest request) =>
-            service.CreateTag(spaceId, request).ToCreatedHttpResult(tag => $"/api/spaces/{spaceId}/tags/{tag.Id}"));
-        tags.MapPatch("/{tagId:guid}", (ClassificationService service, Guid spaceId, Guid tagId, UpdateTagRequest request) =>
-            service.UpdateTag(spaceId, tagId, request).ToHttpResult());
-        tags.MapDelete("/{tagId:guid}", (ClassificationService service, Guid spaceId, Guid tagId) =>
-            service.RemoveTag(spaceId, tagId).ToNoContentResult());
+        var folders = protectedSpaces.MapGroup("/{spaceId:guid}/folders").WithTags("Folders");
+        folders.MapGet("/", (ClassificationService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.GetFolders(userId, spaceId).ToHttpResult() : Results.Unauthorized());
+        folders.MapPost("/", (ClassificationService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, CreateNamedItemRequest request) =>
+            currentUser.GetUserId(principal) is { } userId
+                ? service.CreateFolder(userId, spaceId, request).ToCreatedHttpResult(folder => $"/api/spaces/{spaceId}/folders/{folder.Id}")
+                : Results.Unauthorized());
+        folders.MapPatch("/{folderId:guid}", (ClassificationService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid folderId, UpdateNamedItemRequest request) =>
+            currentUser.GetUserId(principal) is { } userId ? service.UpdateFolder(userId, spaceId, folderId, request).ToHttpResult() : Results.Unauthorized());
+        folders.MapDelete("/{folderId:guid}", (ClassificationService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid folderId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.RemoveFolder(userId, spaceId, folderId).ToNoContentResult() : Results.Unauthorized());
 
-        var categories = spaces.MapGroup("/{spaceId:guid}/categories").WithTags("Categories");
-        categories.MapGet("/", (ClassificationService service, Guid spaceId) => service.GetCategories(spaceId).ToHttpResult());
-        categories.MapPost("/", (ClassificationService service, Guid spaceId, CreateNamedItemRequest request) =>
-            service.CreateCategory(spaceId, request).ToCreatedHttpResult(category => $"/api/spaces/{spaceId}/categories/{category.Id}"));
-        categories.MapPatch("/{categoryId:guid}", (ClassificationService service, Guid spaceId, Guid categoryId, UpdateNamedItemRequest request) =>
-            service.UpdateCategory(spaceId, categoryId, request).ToHttpResult());
-        categories.MapDelete("/{categoryId:guid}", (ClassificationService service, Guid spaceId, Guid categoryId) =>
-            service.RemoveCategory(spaceId, categoryId).ToNoContentResult());
+        var tags = protectedSpaces.MapGroup("/{spaceId:guid}/tags").WithTags("Tags");
+        tags.MapGet("/", (ClassificationService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.GetTags(userId, spaceId).ToHttpResult() : Results.Unauthorized());
+        tags.MapPost("/", (ClassificationService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, CreateTagRequest request) =>
+            currentUser.GetUserId(principal) is { } userId
+                ? service.CreateTag(userId, spaceId, request).ToCreatedHttpResult(tag => $"/api/spaces/{spaceId}/tags/{tag.Id}")
+                : Results.Unauthorized());
+        tags.MapPatch("/{tagId:guid}", (ClassificationService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid tagId, UpdateTagRequest request) =>
+            currentUser.GetUserId(principal) is { } userId ? service.UpdateTag(userId, spaceId, tagId, request).ToHttpResult() : Results.Unauthorized());
+        tags.MapDelete("/{tagId:guid}", (ClassificationService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid tagId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.RemoveTag(userId, spaceId, tagId).ToNoContentResult() : Results.Unauthorized());
 
-        var plan = spaces.MapGroup("/{spaceId:guid}/plan").WithTags("Planning");
-        plan.MapGet("/", (PlanningService service, Guid spaceId, DateTimeOffset? from, DateTimeOffset? to) =>
-            service.GetSchedule(spaceId, from, to).ToHttpResult());
-        plan.MapPatch("/{scheduledIdeaId:guid}", (PlanningService service, Guid spaceId, Guid scheduledIdeaId, UpdateScheduledIdeaRequest request) =>
-            service.UpdateSchedule(spaceId, scheduledIdeaId, request).ToHttpResult());
+        var categories = protectedSpaces.MapGroup("/{spaceId:guid}/categories").WithTags("Categories");
+        categories.MapGet("/", (ClassificationService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.GetCategories(userId, spaceId).ToHttpResult() : Results.Unauthorized());
+        categories.MapPost("/", (ClassificationService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, CreateNamedItemRequest request) =>
+            currentUser.GetUserId(principal) is { } userId
+                ? service.CreateCategory(userId, spaceId, request).ToCreatedHttpResult(category => $"/api/spaces/{spaceId}/categories/{category.Id}")
+                : Results.Unauthorized());
+        categories.MapPatch("/{categoryId:guid}", (ClassificationService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid categoryId, UpdateNamedItemRequest request) =>
+            currentUser.GetUserId(principal) is { } userId ? service.UpdateCategory(userId, spaceId, categoryId, request).ToHttpResult() : Results.Unauthorized());
+        categories.MapDelete("/{categoryId:guid}", (ClassificationService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid categoryId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.RemoveCategory(userId, spaceId, categoryId).ToNoContentResult() : Results.Unauthorized());
 
-        var history = spaces.MapGroup("/{spaceId:guid}/history").WithTags("History");
-        history.MapGet("/", (HistoryService service, Guid spaceId, Guid? ideaId) => service.GetHistory(spaceId, ideaId).ToHttpResult());
-        history.MapPost("/", (HistoryService service, Guid spaceId, CreateHistoryEntryRequest request) =>
-            service.CreateHistoryEntry(spaceId, request).ToCreatedHttpResult(entry => $"/api/spaces/{spaceId}/history/{entry.Id}"));
-        history.MapPatch("/{entryId:guid}", (HistoryService service, Guid spaceId, Guid entryId, UpdateHistoryEntryRequest request) =>
-            service.UpdateHistoryEntry(spaceId, entryId, request).ToHttpResult());
+        var plan = protectedSpaces.MapGroup("/{spaceId:guid}/plan").WithTags("Planning");
+        plan.MapGet("/", (PlanningService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, DateTimeOffset? from, DateTimeOffset? to) =>
+            currentUser.GetUserId(principal) is { } userId ? service.GetSchedule(userId, spaceId, from, to).ToHttpResult() : Results.Unauthorized());
+        plan.MapPatch("/{scheduledIdeaId:guid}", (PlanningService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid scheduledIdeaId, UpdateScheduledIdeaRequest request) =>
+            currentUser.GetUserId(principal) is { } userId ? service.UpdateSchedule(userId, spaceId, scheduledIdeaId, request).ToHttpResult() : Results.Unauthorized());
+
+        var history = protectedSpaces.MapGroup("/{spaceId:guid}/history").WithTags("History");
+        history.MapGet("/", (HistoryService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid? ideaId) =>
+            currentUser.GetUserId(principal) is { } userId ? service.GetHistory(userId, spaceId, ideaId).ToHttpResult() : Results.Unauthorized());
+        history.MapPost("/", (HistoryService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, CreateHistoryEntryRequest request) =>
+            currentUser.GetUserId(principal) is { } userId
+                ? service.CreateHistoryEntry(userId, spaceId, request).ToCreatedHttpResult(entry => $"/api/spaces/{spaceId}/history/{entry.Id}")
+                : Results.Unauthorized());
+        history.MapPatch("/{entryId:guid}", (HistoryService service, CurrentUserAccessor currentUser, ClaimsPrincipal principal, Guid spaceId, Guid entryId, UpdateHistoryEntryRequest request) =>
+            currentUser.GetUserId(principal) is { } userId ? service.UpdateHistoryEntry(userId, spaceId, entryId, request).ToHttpResult() : Results.Unauthorized());
 
         return app;
     }

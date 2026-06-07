@@ -47,7 +47,7 @@ public sealed class InMemoryUserRepository(InMemoryVmestraDatabase database) : I
     }
 }
 
-public sealed class InMemorySpaceRepository(InMemoryVmestraDatabase database, IUserRepository users) : ISpaceRepository
+public sealed class InMemorySpaceRepository(InMemoryVmestraDatabase database) : ISpaceRepository
 {
     public bool Exists(Guid spaceId)
     {
@@ -70,15 +70,30 @@ public sealed class InMemorySpaceRepository(InMemoryVmestraDatabase database, IU
         lock (database.Gate) return database.Spaces.SingleOrDefault(space => space.Id == spaceId);
     }
 
-    public Space CreateSpace(CreateSpaceRequest request)
+    public Space CreateSpace(CreateSpaceRequest request, Guid createdByUserId)
     {
         lock (database.Gate)
         {
             var now = DateTimeOffset.UtcNow;
-            var creatorId = request.CreatedByUserId ?? users.EnsureDemoUser().Id;
-            var space = new Space(Guid.NewGuid(), request.Kind, request.Name.Trim(), SpaceState.Active, creatorId, now, now);
+            var space = new Space(Guid.NewGuid(), request.Kind, request.Name.Trim(), SpaceState.Active, createdByUserId, now, now);
             database.Spaces.Add(space);
-            database.Members.Add(new SpaceMember(Guid.NewGuid(), space.Id, creatorId, SpaceMemberRole.Admin, null, now));
+            database.Members.Add(new SpaceMember(Guid.NewGuid(), space.Id, createdByUserId, SpaceMemberRole.Admin, null, now));
+            return space;
+        }
+    }
+
+    public Space EnsurePersonalSpace(Guid userId)
+    {
+        lock (database.Gate)
+        {
+            var existingSpaceIds = database.Members.Where(member => member.UserId == userId).Select(member => member.SpaceId).ToHashSet();
+            var existing = database.Spaces.FirstOrDefault(space => existingSpaceIds.Contains(space.Id) && space.Kind == SpaceKind.Personal);
+            if (existing is not null) return existing;
+
+            var now = DateTimeOffset.UtcNow;
+            var space = new Space(Guid.NewGuid(), SpaceKind.Personal, "Личное пространство", SpaceState.Active, userId, now, now);
+            database.Spaces.Add(space);
+            database.Members.Add(new SpaceMember(Guid.NewGuid(), space.Id, userId, SpaceMemberRole.Admin, null, now));
             return space;
         }
     }
@@ -105,6 +120,11 @@ public sealed class InMemorySpaceRepository(InMemoryVmestraDatabase database, IU
     public IReadOnlyCollection<SpaceMember> GetMembers(Guid spaceId)
     {
         lock (database.Gate) return database.Members.Where(member => member.SpaceId == spaceId).ToArray();
+    }
+
+    public SpaceMember? GetMember(Guid spaceId, Guid userId)
+    {
+        lock (database.Gate) return database.Members.SingleOrDefault(member => member.SpaceId == spaceId && member.UserId == userId);
     }
 
     public SpaceMember? AddMember(Guid spaceId, AddSpaceMemberRequest request)
@@ -144,7 +164,7 @@ public sealed class InMemorySpaceRepository(InMemoryVmestraDatabase database, IU
     }
 }
 
-public sealed class InMemoryIdeaRepository(InMemoryVmestraDatabase database, IUserRepository users, IHistoryRepository history) : IIdeaRepository
+public sealed class InMemoryIdeaRepository(InMemoryVmestraDatabase database, IHistoryRepository history) : IIdeaRepository
 {
     public IReadOnlyCollection<Idea> GetIdeas(Guid spaceId, Guid? folderId, Guid? tagId, Guid? categoryId, IdeaState? state, bool includeArchived)
     {
@@ -165,7 +185,7 @@ public sealed class InMemoryIdeaRepository(InMemoryVmestraDatabase database, IUs
         lock (database.Gate) return database.Ideas.SingleOrDefault(idea => idea.SpaceId == spaceId && idea.Id == ideaId);
     }
 
-    public Idea? CreateIdea(Guid spaceId, CreateIdeaRequest request)
+    public Idea? CreateIdea(Guid spaceId, CreateIdeaRequest request, Guid createdByUserId)
     {
         lock (database.Gate)
         {
@@ -176,7 +196,7 @@ public sealed class InMemoryIdeaRepository(InMemoryVmestraDatabase database, IUs
             var idea = new Idea(
                 Guid.NewGuid(),
                 spaceId,
-                request.CreatedByUserId ?? users.EnsureDemoUser().Id,
+                createdByUserId,
                 request.Text.Trim(),
                 BlankToNull(request.Title),
                 BlankToNull(request.Description),
@@ -189,7 +209,7 @@ public sealed class InMemoryIdeaRepository(InMemoryVmestraDatabase database, IUs
                 now);
 
             database.Ideas.Add(idea);
-            history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(idea.Id, idea.CreatedByUserId, "Идея добавлена", null, null, now));
+            history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(idea.Id, idea.CreatedByUserId, "Идея добавлена", null, null, now), idea.CreatedByUserId);
             return idea;
         }
     }
@@ -218,7 +238,7 @@ public sealed class InMemoryIdeaRepository(InMemoryVmestraDatabase database, IUs
             };
 
             database.Ideas[index] = updated;
-            history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, updated.CreatedByUserId, "Идея обновлена", null, null, DateTimeOffset.UtcNow));
+            history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, updated.CreatedByUserId, "Идея обновлена", null, null, DateTimeOffset.UtcNow), updated.CreatedByUserId);
             return updated;
         }
     }
@@ -397,7 +417,7 @@ public sealed class InMemoryPlanningRepository(InMemoryVmestraDatabase database,
         }
     }
 
-    public ScheduledIdea? ScheduleIdea(Guid spaceId, Guid ideaId, ScheduleIdeaRequest request)
+    public ScheduledIdea? ScheduleIdea(Guid spaceId, Guid ideaId, ScheduleIdeaRequest request, Guid createdByUserId)
     {
         lock (database.Gate)
         {
@@ -407,10 +427,10 @@ public sealed class InMemoryPlanningRepository(InMemoryVmestraDatabase database,
             if (!ValidateParticipants(spaceId, participantIds)) return null;
 
             var now = DateTimeOffset.UtcNow;
-            var scheduled = new ScheduledIdea(Guid.NewGuid(), spaceId, ideaId, request.CreatedByUserId ?? idea.CreatedByUserId, request.StartsAt, request.EndsAt, participantIds, ScheduledIdeaState.Planned, BlankToNull(request.Note), now, now);
+            var scheduled = new ScheduledIdea(Guid.NewGuid(), spaceId, ideaId, createdByUserId, request.StartsAt, request.EndsAt, participantIds, ScheduledIdeaState.Planned, BlankToNull(request.Note), now, now);
             database.ScheduledIdeas.Add(scheduled);
             SetIdeaState(spaceId, ideaId, IdeaState.Planned, now);
-            history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, scheduled.CreatedByUserId, "Идея запланирована", null, null, request.StartsAt));
+            history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, scheduled.CreatedByUserId, "Идея запланирована", null, null, request.StartsAt), scheduled.CreatedByUserId);
             return scheduled;
         }
     }
@@ -490,7 +510,7 @@ public sealed class InMemoryPlanningRepository(InMemoryVmestraDatabase database,
     private bool ValidateParticipants(Guid spaceId, IEnumerable<Guid> userIds) => userIds.All(userId => database.Members.Any(member => member.SpaceId == spaceId && member.UserId == userId));
 }
 
-public sealed class InMemoryHistoryRepository(InMemoryVmestraDatabase database, IUserRepository users) : IHistoryRepository
+public sealed class InMemoryHistoryRepository(InMemoryVmestraDatabase database) : IHistoryRepository
 {
     public IReadOnlyCollection<HistoryEntry> GetHistory(Guid spaceId, Guid? ideaId)
     {
@@ -502,7 +522,7 @@ public sealed class InMemoryHistoryRepository(InMemoryVmestraDatabase database, 
         }
     }
 
-    public HistoryEntry? CreateHistoryEntry(Guid spaceId, CreateHistoryEntryRequest request)
+    public HistoryEntry? CreateHistoryEntry(Guid spaceId, CreateHistoryEntryRequest request, Guid createdByUserId)
     {
         lock (database.Gate)
         {
@@ -510,7 +530,7 @@ public sealed class InMemoryHistoryRepository(InMemoryVmestraDatabase database, 
             if (request.IdeaId is not null && !database.Ideas.Any(idea => idea.SpaceId == spaceId && idea.Id == request.IdeaId)) return null;
 
             var now = DateTimeOffset.UtcNow;
-            var entry = new HistoryEntry(Guid.NewGuid(), spaceId, request.IdeaId, request.CreatedByUserId ?? users.EnsureDemoUser().Id, request.Title.Trim(), BlankToNull(request.PublicNote), BlankToNull(request.PrivateNote), request.HappenedAt ?? now, now, now);
+            var entry = new HistoryEntry(Guid.NewGuid(), spaceId, request.IdeaId, createdByUserId, request.Title.Trim(), BlankToNull(request.PublicNote), BlankToNull(request.PrivateNote), request.HappenedAt ?? now, now, now);
             database.History.Add(entry);
             return entry;
         }
@@ -539,20 +559,20 @@ public sealed class InMemoryHistoryRepository(InMemoryVmestraDatabase database, 
     private static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
-public sealed class InMemoryCommentRepository(InMemoryVmestraDatabase database, IUserRepository users) : ICommentRepository
+public sealed class InMemoryCommentRepository(InMemoryVmestraDatabase database) : ICommentRepository
 {
     public IReadOnlyCollection<Comment> GetComments(Guid spaceId, Guid ideaId)
     {
         lock (database.Gate) return database.Comments.Where(comment => comment.SpaceId == spaceId && comment.IdeaId == ideaId).OrderBy(comment => comment.CreatedAt).ToArray();
     }
 
-    public Comment? AddComment(Guid spaceId, Guid ideaId, CreateCommentRequest request)
+    public Comment? AddComment(Guid spaceId, Guid ideaId, CreateCommentRequest request, Guid createdByUserId)
     {
         lock (database.Gate)
         {
             if (!database.Ideas.Any(idea => idea.SpaceId == spaceId && idea.Id == ideaId)) return null;
             var now = DateTimeOffset.UtcNow;
-            var comment = new Comment(Guid.NewGuid(), spaceId, ideaId, request.CreatedByUserId ?? users.EnsureDemoUser().Id, request.Text.Trim(), now, now);
+            var comment = new Comment(Guid.NewGuid(), spaceId, ideaId, createdByUserId, request.Text.Trim(), now, now);
             database.Comments.Add(comment);
             return comment;
         }

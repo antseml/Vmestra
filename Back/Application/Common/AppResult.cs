@@ -6,7 +6,8 @@ public enum AppErrorType
     Validation,
     NotFound,
     Conflict,
-    Unauthorized
+    Unauthorized,
+    Forbidden
 }
 
 public sealed record AppError(AppErrorType Type, string Message)
@@ -27,4 +28,6 @@ public sealed record AppResult<T>(T? Value, AppError Error)
     public static AppResult<T> Conflict(string message) => new(default, new AppError(AppErrorType.Conflict, message));
 
     public static AppResult<T> Unauthorized(string message = "Unauthorized.") => new(default, new AppError(AppErrorType.Unauthorized, message));
+
+    public static AppResult<T> Forbidden(string message = "Forbidden.") => new(default, new AppError(AppErrorType.Forbidden, message));
 }
