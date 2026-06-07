@@ -4,12 +4,11 @@ import {
   FolderOpen,
   History,
   Inbox,
-  Plus,
   UserPlus,
   Users,
   Wand2,
 } from 'lucide-react'
-import { useEffect, useMemo, useState, type ElementType, type FormEvent } from 'react'
+import { useEffect, useState, type ElementType, type FormEvent } from 'react'
 import './App.css'
 import { AuthApiError, AuthRequiredError, authClient, setUnauthorizedHandler, type AuthUser } from './api/authClient'
 import { ApiRequestError } from './api/backendClient'
@@ -31,7 +30,7 @@ import { SpacesScreen } from './screens/SpacesScreen'
 
 type IdeaActions = {
   onArchive: (idea: Idea) => void
-  onEdit: (idea: Idea, draft: { title: string; note: string }) => void
+  onEdit: (idea: Idea, draft: { title: string; note: string; folderName: string; categoryName: string; tagNames: string[] }) => void
   onRestore: (idea: Idea) => void
   onSortOut: (idea: Idea) => void
 }
@@ -201,13 +200,7 @@ function App() {
     }
   }, [selectedSpace])
 
-  const suggestedTags = useMemo(() => {
-    const text = quickIdea.toLowerCase()
-    if (text.includes('кино') || text.includes('фильм')) return ['вечер', 'кино', 'дома']
-    if (text.includes('кафе') || text.includes('завтрак')) return ['еда', 'утро', 'вне дома']
-    if (text.includes('гулять') || text.includes('прогул')) return ['вне дома', 'бесплатно']
-    return ['входящие', 'потом уточнить']
-  }, [quickIdea])
+  const suggestedTags = tags.slice(0, 5)
 
   async function saveQuickIdea() {
     if (!selectedSpace?.id || !quickIdea.trim()) return
@@ -265,15 +258,28 @@ function App() {
     }
   }
 
-  async function saveIdeaEdit(idea: Idea, draft: { title: string; note: string }) {
+  async function saveIdeaEdit(
+    idea: Idea,
+    draft: { title: string; note: string; folderName: string; categoryName: string; tagNames: string[] },
+  ) {
     if (!selectedSpace?.id) return
     setIdeaActionNotice(null)
 
     try {
+      const missingTagNames = draft.tagNames.filter((tagName) => !tags.includes(tagName))
+      for (const tagName of missingTagNames) {
+        await dataClient.createTag(selectedSpace.id, { name: tagName, source: 'User' })
+      }
+      if (missingTagNames.length > 0) {
+        setTags((currentTags) => Array.from(new Set([...currentTags, ...missingTagNames])))
+      }
       replaceIdea(
         await dataClient.updateIdea(selectedSpace.id, idea.id, {
           title: draft.title.trim() || idea.title,
           description: draft.note.trim(),
+          folderName: draft.folderName || null,
+          categoryName: draft.categoryName || null,
+          tagNames: draft.tagNames,
         }),
       )
       setIdeaActionNotice('Идея обновлена.')
@@ -500,6 +506,8 @@ function App() {
 
         {activeView === 'space' && (
           <SpaceScreen
+            categories={categories}
+            folders={folders}
             selectedSpace={selectedSpaceWithLiveStats}
             quickIdea={quickIdea}
             setQuickIdea={setQuickIdea}
@@ -514,11 +522,19 @@ function App() {
             ideaActionNotice={ideaActionNotice}
             recommendations={recommendations}
             setActiveView={setActiveView}
+            tags={tags}
           />
         )}
 
         {activeView === 'inbox' && (
-          <InboxScreen ideas={inboxIdeas} ideaActions={ideaActions} ideaActionNotice={ideaActionNotice} />
+          <InboxScreen
+            categories={categories}
+            folders={folders}
+            ideas={inboxIdeas}
+            ideaActions={ideaActions}
+            ideaActionNotice={ideaActionNotice}
+            tags={tags}
+          />
         )}
         {activeView === 'library' && (
           <LibraryScreen
@@ -699,6 +715,8 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (user: AuthUser) => 
 }
 
 function SpaceScreen({
+  categories,
+  folders,
   selectedSpace,
   quickIdea,
   setQuickIdea,
@@ -713,7 +731,10 @@ function SpaceScreen({
   ideaActionNotice,
   recommendations,
   setActiveView,
+  tags,
 }: {
+  categories: string[]
+  folders: Folder[]
   selectedSpace: Space
   quickIdea: string
   setQuickIdea: (value: string) => void
@@ -728,6 +749,7 @@ function SpaceScreen({
   ideaActionNotice: string | null
   recommendations: Recommendation[]
   setActiveView: (value: View) => void
+  tags: string[]
 }) {
   const nonArchivedIdeas = spaceIdeas.filter((idea) => idea.status !== 'archived')
   const recentIdeas = nonArchivedIdeas.slice(0, 5)
@@ -769,7 +791,7 @@ function SpaceScreen({
             </button>
           </div>
           {ideaActionNotice && <p className="form-note">{ideaActionNotice}</p>}
-          <IdeaList actions={ideaActions} ideas={recentIdeas} />
+          <IdeaList actions={ideaActions} categories={categories} folders={folders} ideas={recentIdeas} tags={tags} />
         </section>
 
         <aside className="section-band side-band">
@@ -783,13 +805,19 @@ function SpaceScreen({
 }
 
 function InboxScreen({
+  categories,
+  folders,
   ideas,
   ideaActions,
   ideaActionNotice,
+  tags,
 }: {
+  categories: string[]
+  folders: Folder[]
   ideas: Idea[]
   ideaActions: IdeaActions
   ideaActionNotice: string | null
+  tags: string[]
 }) {
   return (
     <section className="section-band full-band">
@@ -803,8 +831,11 @@ function InboxScreen({
       {ideaActionNotice && <p className="form-note">{ideaActionNotice}</p>}
       <IdeaList
         actions={ideaActions}
+        categories={categories}
+        folders={folders}
         emptyText="Во входящих пока тихо. Новые быстрые идеи будут появляться здесь."
         ideas={ideas}
+        tags={tags}
         inboxMode
       />
     </section>
@@ -850,7 +881,7 @@ function LibraryScreen({
         <div className="section-title">
           <div>
             <span className="eyebrow">Папки, теги, категории</span>
-            <h2>Копилка без жёсткой рабочей структуры</h2>
+            <h2>Папки, теги и категории</h2>
           </div>
         </div>
         <div className="folder-grid">
@@ -904,7 +935,7 @@ function LibraryScreen({
           </label>
         </div>
         {dictionaryNotice && <p className="form-note">{dictionaryNotice}</p>}
-        {folders.length === 0 && <EmptyState text="Папки появятся здесь, когда в пространстве будет первый справочник." />}
+        {folders.length === 0 && <EmptyState text="Создайте папку, чтобы разложить идеи по темам или контекстам." />}
         <div className="archive-toggle">
           <button
             className={showArchived ? 'secondary-button active' : 'secondary-button'}
@@ -915,12 +946,12 @@ function LibraryScreen({
           </button>
         </div>
         {ideaActionNotice && <p className="form-note">{ideaActionNotice}</p>}
-        <IdeaList actions={ideaActions} ideas={visibleIdeas} />
+        <IdeaList actions={ideaActions} categories={categories} folders={folders} ideas={visibleIdeas} tags={tags} />
       </section>
 
       <aside className="section-band side-band">
         <span className="eyebrow">Теги</span>
-        <h2>Сервис может предложить, пользователь может поправить</h2>
+        <h2>Быстрые признаки для поиска и выбора</h2>
         <div className="tag-cloud">
           {tags.map((tag) => (
             <span className="tag" key={tag}>
@@ -957,7 +988,7 @@ function RecommendationsScreen({
           <span className="eyebrow">Подборки в «{selectedSpace.title}»</span>
           <h2>Помочь выбрать, а не заставить выполнить</h2>
         </div>
-        <span className="soft-badge">простые фильтры MVP</span>
+        <span className="soft-badge">по тегам и истории пространства</span>
       </div>
       <RecommendationCards recommendations={recommendations} />
     </section>
@@ -989,6 +1020,9 @@ function PlanningScreen({
   const [planDate, setPlanDate] = useState('2026-06-12')
   const [planTime, setPlanTime] = useState('20:00')
   const [planNote, setPlanNote] = useState('')
+  const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>(() =>
+    selectedSpace.members.slice(0, 1).map((member) => member.id),
+  )
   const effectiveSelectedIdeaId = availableIdeas.some((idea) => idea.id === selectedIdeaId)
     ? selectedIdeaId
     : (availableIdeas[0]?.id ?? '')
@@ -996,7 +1030,13 @@ function PlanningScreen({
   const draftPlanPayload = {
     ideaId: effectiveSelectedIdeaId,
     startsAt,
-    participantUserIds: selectedSpace.members.map((member) => member.id),
+    participantUserIds: selectedParticipantIds.length > 0 ? selectedParticipantIds : selectedSpace.members.slice(0, 1).map((member) => member.id),
+  }
+
+  function toggleParticipant(memberId: string) {
+    setSelectedParticipantIds((currentIds) =>
+      currentIds.includes(memberId) ? currentIds.filter((id) => id !== memberId) : [...currentIds, memberId],
+    )
   }
 
   return (
@@ -1004,10 +1044,10 @@ function PlanningScreen({
       <section className="section-band main-band">
         <div className="section-title">
           <div>
-            <span className="eyebrow">Планирование идеи</span>
+            <span className="eyebrow">Планирование</span>
             <h2>Дата, время и участники</h2>
           </div>
-          <span className="soft-badge">заготовка UX</span>
+          <span className="soft-badge">дата, время, участники</span>
         </div>
         <div className="planning-form">
           <label>
@@ -1040,7 +1080,12 @@ function PlanningScreen({
             <span className="field-label">Участники</span>
             <div className="member-picks">
               {selectedSpace.members.map((member) => (
-                <button className="member-chip" key={member.id} type="button">
+                <button
+                  className={selectedParticipantIds.includes(member.id) ? 'member-chip selected' : 'member-chip'}
+                  key={member.id}
+                  type="button"
+                  onClick={() => toggleParticipant(member.id)}
+                >
                   <span>{member.avatar}</span>
                   {member.name}
                 </button>
@@ -1071,8 +1116,11 @@ function PlanningScreen({
         <span className="eyebrow">Уже в планах</span>
         <IdeaList
           actions={ideaActions}
+          categories={[]}
           emptyText="Пока ничего не запланировано. Идеи всё равно остаются доступными в копилке."
+          folders={[]}
           ideas={plannedIdeas}
+          tags={[]}
         />
       </aside>
     </div>
@@ -1174,46 +1222,21 @@ function GroupScreen({
   onCreateGroup: (name: string) => void
 }) {
   const [groupName, setGroupName] = useState('Новая группа')
-  const [personalName, setPersonalName] = useState('')
-  const [inviteText, setInviteText] = useState('')
 
   return (
     <section className="section-band full-band">
       <div className="section-title">
         <div>
-          <span className="eyebrow">UX-заготовка</span>
-          <h2>Создание группы и добавление участников</h2>
+          <span className="eyebrow">Групповое пространство</span>
+          <h2>Создать группу</h2>
         </div>
       </div>
       <div className="group-form">
         <label>
-          Общее название
+          Название группы
           <input value={groupName} onChange={(event) => setGroupName(event.target.value)} />
         </label>
-        <label>
-          Моё личное название
-          <input
-            placeholder="Например: воскресные планы"
-            value={personalName}
-            onChange={(event) => setPersonalName(event.target.value)}
-          />
-        </label>
-        <label>
-          Участники
-          <input
-            placeholder="Имя или email"
-            value={inviteText}
-            onChange={(event) => setInviteText(event.target.value)}
-          />
-        </label>
-        <div className="member-picks">
-          {['Маша', 'Дима', 'Ира'].map((name) => (
-            <button className="member-chip" key={name} type="button">
-              <Plus size={14} />
-              {name}
-            </button>
-          ))}
-        </div>
+        <p className="form-note">После создания можно будет добавить участников через приглашения.</p>
         {groupNotice && <p className="form-note">{groupNotice}</p>}
         <button className="primary-button" disabled={!groupName.trim()} type="button" onClick={() => onCreateGroup(groupName)}>
           Создать пространство
@@ -1281,26 +1304,45 @@ function RecommendationCards({
 
 function IdeaList({
   actions,
+  categories,
+  folders,
   ideas,
   inboxMode = false,
   emptyText,
+  tags,
 }: {
   actions?: IdeaActions
+  categories: string[]
+  folders: Folder[]
   ideas: Idea[]
   inboxMode?: boolean
   emptyText?: string
+  tags: string[]
 }) {
   const [editingIdeaId, setEditingIdeaId] = useState<string | null>(null)
-  const [editDraft, setEditDraft] = useState({ title: '', note: '' })
+  const [editDraft, setEditDraft] = useState({ title: '', note: '', folderName: '', categoryName: '', tagNames: [] as string[] })
+  const [editTagInput, setEditTagInput] = useState('')
 
   function startEditing(idea: Idea) {
     setEditingIdeaId(idea.id)
-    setEditDraft({ title: idea.title, note: idea.note })
+    setEditDraft({ title: idea.title, note: idea.note, folderName: idea.folder, categoryName: idea.category, tagNames: idea.tags })
+    setEditTagInput('')
   }
 
   function saveEdit(idea: Idea) {
     actions?.onEdit(idea, editDraft)
     setEditingIdeaId(null)
+  }
+
+  function addDraftTag() {
+    const tagName = editTagInput.trim()
+    if (!tagName || editDraft.tagNames.includes(tagName)) return
+    setEditDraft((draft) => ({ ...draft, tagNames: [...draft.tagNames, tagName] }))
+    setEditTagInput('')
+  }
+
+  function removeDraftTag(tagName: string) {
+    setEditDraft((draft) => ({ ...draft, tagNames: draft.tagNames.filter((tag) => tag !== tagName) }))
   }
 
   return (
@@ -1332,6 +1374,68 @@ function IdeaList({
                       onChange={(event) => setEditDraft((draft) => ({ ...draft, note: event.target.value }))}
                     />
                   </label>
+                  <div className="idea-edit-grid">
+                    <label>
+                      Папка
+                      <select
+                        value={editDraft.folderName}
+                        onChange={(event) => setEditDraft((draft) => ({ ...draft, folderName: event.target.value }))}
+                      >
+                        <option value="">Без папки</option>
+                        {folders.map((folder) => (
+                          <option key={folder.id} value={folder.name}>
+                            {folder.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Категория
+                      <select
+                        value={editDraft.categoryName}
+                        onChange={(event) => setEditDraft((draft) => ({ ...draft, categoryName: event.target.value }))}
+                      >
+                        <option value="">Без категории</option>
+                        {categories.map((category) => (
+                          <option key={category} value={category}>
+                            {category}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <label>
+                    Теги
+                    <span className="inline-control">
+                      <input
+                        list={`tag-options-${idea.id}`}
+                        placeholder="Найти или добавить тег"
+                        value={editTagInput}
+                        onChange={(event) => setEditTagInput(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault()
+                            addDraftTag()
+                          }
+                        }}
+                      />
+                      <button className="secondary-button" type="button" onClick={addDraftTag}>
+                        Добавить
+                      </button>
+                    </span>
+                    <datalist id={`tag-options-${idea.id}`}>
+                      {tags.map((tag) => (
+                        <option key={tag} value={tag} />
+                      ))}
+                    </datalist>
+                  </label>
+                  <div className="tag-row">
+                    {editDraft.tagNames.map((tag) => (
+                      <button className="tag removable" key={tag} type="button" onClick={() => removeDraftTag(tag)}>
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
                   <div className="idea-actions">
                     <button className="primary-button" type="button" onClick={() => saveEdit(idea)}>
                       Сохранить

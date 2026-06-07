@@ -64,8 +64,11 @@ export type UpdateIdeaRequest = {
   title?: string | null
   description?: string | null
   folderId?: string | null
+  folderName?: string | null
   categoryId?: string | null
+  categoryName?: string | null
   tagIds?: string[]
+  tagNames?: string[]
   state?: ApiIdeaState
   isRecurring?: boolean
 }

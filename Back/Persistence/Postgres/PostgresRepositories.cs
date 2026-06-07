@@ -348,25 +348,31 @@ public sealed class PostgresPlanningRepository(VmestraDbContext db, IHistoryRepo
         if (!ValidateParticipants(spaceId, participants)) return null;
 
         var now = DateTimeOffset.UtcNow;
+        var startsAt = request.StartsAt.ToUniversalTime();
+        var endsAt = request.EndsAt?.ToUniversalTime();
         var scheduled = new ScheduledIdeaEntity
         {
             Id = Guid.NewGuid(),
             SpaceId = spaceId,
             IdeaId = ideaId,
             CreatedByUserId = createdByUserId,
-            StartsAt = request.StartsAt,
-            EndsAt = request.EndsAt,
+            StartsAt = startsAt,
+            EndsAt = endsAt,
             State = ScheduledIdeaState.Planned,
             Note = BlankToNull(request.Note),
             CreatedAt = now,
-            UpdatedAt = now,
-            Participants = participants.Select(userId => new ScheduledIdeaParticipantEntity { UserId = userId }).ToList()
+            UpdatedAt = now
         };
         db.ScheduledIdeas.Add(scheduled);
         idea.State = IdeaState.Planned;
         idea.UpdatedAt = now;
         db.SaveChanges();
-        history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, scheduled.CreatedByUserId, "Идея запланирована", null, null, request.StartsAt), scheduled.CreatedByUserId);
+        foreach (var userId in participants)
+        {
+            db.Set<ScheduledIdeaParticipantEntity>().Add(new ScheduledIdeaParticipantEntity { ScheduledIdeaId = scheduled.Id, UserId = userId });
+        }
+        db.SaveChanges();
+        history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(ideaId, scheduled.CreatedByUserId, "Идея запланирована", null, null, startsAt), scheduled.CreatedByUserId);
         return GetSchedule(spaceId, null, null).Single(item => item.Id == scheduled.Id);
     }
 
@@ -377,8 +383,8 @@ public sealed class PostgresPlanningRepository(VmestraDbContext db, IHistoryRepo
         if (request.ParticipantUserIds is not null && !ValidateParticipants(spaceId, request.ParticipantUserIds)) return null;
 
         var now = DateTimeOffset.UtcNow;
-        scheduled.StartsAt = request.StartsAt ?? scheduled.StartsAt;
-        scheduled.EndsAt = request.EndsAt ?? scheduled.EndsAt;
+        scheduled.StartsAt = request.StartsAt?.ToUniversalTime() ?? scheduled.StartsAt;
+        scheduled.EndsAt = request.EndsAt?.ToUniversalTime() ?? scheduled.EndsAt;
         scheduled.State = request.State == ScheduledIdeaState.Moved && request.StartsAt is not null && request.StartsAt.Value > now
             ? ScheduledIdeaState.Planned
             : request.State ?? scheduled.State;

@@ -166,7 +166,7 @@ function userToMember(user: ApiUser, role: Member['role'] = 'Member'): Member {
 function mapMember(member: ApiSpaceMember, usersById: Map<string, ApiUser>): Member {
   const user = usersById.get(member.userId)
   return {
-    id: member.id,
+    id: member.userId,
     name: user?.displayName ?? `РЈС‡Р°СЃС‚РЅРёРє ${member.userId.slice(0, 4)}`,
     role: member.role,
     avatar: user?.displayName.slice(0, 1).toUpperCase() ?? '?',
@@ -200,7 +200,7 @@ function mapSpace(
   return {
     id: space.id,
     kind: mapSpaceKind(space.kind),
-    title: ownMember?.personalSpaceName ?? space.name ?? FALLBACK_SPACE_TITLE,
+    title: space.kind === 'Personal' ? (ownMember?.personalSpaceName ?? space.name ?? FALLBACK_SPACE_TITLE) : (space.name ?? FALLBACK_SPACE_TITLE),
     sharedTitle: space.name,
     personalTitle: ownMember?.personalSpaceName ?? undefined,
     description: FALLBACK_SPACE_DESCRIPTION,
@@ -296,6 +296,28 @@ async function mapSingleIdea(spaceId: string, idea: ApiIdea) {
   return mapIdea(idea, { ...refs, plan })
 }
 
+async function prepareIdeaUpdate(spaceId: string, requestBody: UpdateIdeaRequest): Promise<UpdateIdeaRequest> {
+  if (!('folderName' in requestBody) && !('categoryName' in requestBody) && !('tagNames' in requestBody)) {
+    return requestBody
+  }
+
+  const refs = await getSpaceReferenceData(spaceId)
+  const folderName = requestBody.folderName?.trim()
+  const categoryName = requestBody.categoryName?.trim()
+  const tagNames = requestBody.tagNames?.map((tag) => tag.trim()).filter(Boolean)
+  const { folderName: _folderName, categoryName: _categoryName, tagNames: _tagNames, ...apiRequest } = requestBody
+  void _folderName
+  void _categoryName
+  void _tagNames
+
+  return {
+    ...apiRequest,
+    folderId: folderName ? (refs.folders.find((folder) => folder.name === folderName)?.id ?? null) : null,
+    categoryId: categoryName ? (refs.categories.find((category) => category.name === categoryName)?.id ?? null) : null,
+    tagIds: tagNames?.map((tagName) => refs.tags.find((tag) => tag.name === tagName)?.id).filter((id): id is string => Boolean(id)),
+  }
+}
+
 export const backendClient: DataClient = {
   async getCurrentUser() {
     return userToMember(await authClient.me(), 'Admin')
@@ -366,11 +388,12 @@ export const backendClient: DataClient = {
     return mapIdea(createdIdea, { ...refs, plan })
   },
   async updateIdea(spaceId: string, ideaId: string, requestBody: UpdateIdeaRequest) {
+    const apiRequest = await prepareIdeaUpdate(spaceId, requestBody)
     return mapSingleIdea(
       spaceId,
       await request<ApiIdea>(`/api/spaces/${spaceId}/ideas/${ideaId}`, {
         method: 'PATCH',
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify(apiRequest),
       }),
     )
   },

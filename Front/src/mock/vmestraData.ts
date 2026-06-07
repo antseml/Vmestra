@@ -329,7 +329,7 @@ export const mockApi = {
       note: 'Сохранено быстро. Детали можно уточнить позже.',
       folder: 'Входящие',
       category: 'Идея',
-      tags: ['входящие', 'потом уточнить'],
+      tags: [],
       status: 'inbox',
       repeatable: false,
       authorId,
@@ -345,6 +345,9 @@ export const mockApi = {
       text?: string
       title?: string | null
       description?: string | null
+      folderName?: string | null
+      categoryName?: string | null
+      tagNames?: string[]
       state?: 'Inbox' | 'Active' | 'Planned' | 'Experienced' | 'Archived'
       isRecurring?: boolean
     },
@@ -364,6 +367,9 @@ export const mockApi = {
       ...currentIdea,
       title: request.title ?? request.text ?? currentIdea.title,
       note: request.description ?? currentIdea.note,
+      folder: request.folderName ?? currentIdea.folder,
+      category: request.categoryName ?? currentIdea.category,
+      tags: request.tagNames ?? currentIdea.tags,
       status: request.state ? statusByState[request.state] : currentIdea.status,
       repeatable: request.isRecurring ?? currentIdea.repeatable,
     }

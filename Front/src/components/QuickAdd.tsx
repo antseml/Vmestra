@@ -24,13 +24,17 @@ export function QuickAdd({
         onChange={(event) => onChange(event.target.value)}
       />
       <div className="quick-add-footer">
-        <div className="tag-row">
-          {suggestedTags.map((tag) => (
-            <span className="tag" key={tag}>
-              {tag}
-            </span>
-          ))}
-        </div>
+        {suggestedTags.length > 0 ? (
+          <div className="tag-row">
+            {suggestedTags.map((tag) => (
+              <span className="tag" key={tag}>
+                {tag}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="form-note">Сначала сохраните идею, затем добавьте папку и теги через «Изменить».</span>
+        )}
         <button className="primary-button" type="button" disabled={isSaving || !value.trim()} onClick={onSave}>
           {isSaving ? 'Сохраняем' : 'Сохранить'}
           <Check size={17} />

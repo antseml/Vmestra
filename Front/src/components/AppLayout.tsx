@@ -118,7 +118,7 @@ function Header({
   return (
     <header className="topbar">
       <div>
-        <span className="eyebrow">Front прототип MVP</span>
+        <span className="eyebrow">Рабочее пространство</span>
         <h1>{title}</h1>
       </div>
 
