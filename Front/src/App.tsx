@@ -20,7 +20,7 @@ import {
   Users,
   Wand2,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from 'react'
 import './App.css'
 import { DEFAULT_DEMO_USER_ID } from './api/apiContract'
 import { dataClient, dataSourceLabel } from './api/dataClient'
@@ -31,7 +31,6 @@ import {
   type Member,
   type Recommendation,
   type Space,
-  type VisualDirection,
 } from './mock/vmestraData'
 
 type View =
@@ -46,12 +45,6 @@ type View =
   | 'profile'
   | 'group'
 
-const directions: { id: VisualDirection; title: string; note: string }[] = [
-  { id: 'minimal', title: 'Спокойный', note: 'больше воздуха, меньше шума' },
-  { id: 'warm', title: 'Тёплый', note: 'личное настроение и мягкие акценты' },
-  { id: 'dashboard', title: 'Обзорный', note: 'плотнее, но без канбана' },
-]
-
 const views: { id: View; title: string; icon: React.ElementType }[] = [
   { id: 'spaces', title: 'Пространства', icon: Compass },
   { id: 'space', title: 'Обзор', icon: LayoutDashboard },
@@ -64,12 +57,22 @@ const views: { id: View; title: string; icon: React.ElementType }[] = [
   { id: 'profile', title: 'Профиль', icon: Settings },
 ]
 
+const TOUR_STORAGE_KEY = 'vmestra-guided-tour-completed'
+
+function shouldShowGuidedTour() {
+  try {
+    return localStorage.getItem(TOUR_STORAGE_KEY) !== 'true'
+  } catch {
+    return true
+  }
+}
+
 function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
-  const [direction, setDirection] = useState<VisualDirection>('minimal')
   const [activeView, setActiveView] = useState<View>('spaces')
   const [selectedSpaceId, setSelectedSpaceId] = useState('friends')
-  const [showOnboarding, setShowOnboarding] = useState(true)
+  const [showOnboarding, setShowOnboarding] = useState(shouldShowGuidedTour)
+  const [tourStep, setTourStep] = useState(0)
   const [quickIdea, setQuickIdea] = useState('')
   const [currentUser, setCurrentUser] = useState<Member | null>(null)
   const [spaces, setSpaces] = useState<Space[]>([])
@@ -79,27 +82,49 @@ function App() {
   const [spaceHistory, setSpaceHistory] = useState<HistoryEntry[]>([])
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isSavingIdea, setIsSavingIdea] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [quickAddNotice, setQuickAddNotice] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
 
   const selectedSpace = spaces.find((space) => space.id === selectedSpaceId) ?? spaces[0]
   const inboxIdeas = spaceIdeas.filter((idea) => idea.status === 'inbox')
   const plannedIdeas = spaceIdeas.filter((idea) => idea.status === 'planned')
+  const selectedSpaceWithLiveStats = selectedSpace
+    ? {
+        ...selectedSpace,
+        stats: {
+          inbox: inboxIdeas.length,
+          ideas: spaceIdeas.length,
+          planned: plannedIdeas.length,
+          memories: spaceHistory.length,
+        },
+      }
+    : selectedSpace
 
   useEffect(() => {
     let isMounted = true
 
     async function loadSpaces() {
       setIsLoading(true)
-      const user = await dataClient.getCurrentUser()
-      const nextSpaces = await dataClient.getSpaces(user.id || DEFAULT_DEMO_USER_ID)
+      setLoadError(null)
 
-      if (!isMounted) return
+      try {
+        const user = await dataClient.getCurrentUser()
+        const nextSpaces = await dataClient.getSpaces(user.id || DEFAULT_DEMO_USER_ID)
 
-      setCurrentUser(user)
-      setSpaces(nextSpaces)
-      if (!nextSpaces.some((space) => space.id === selectedSpaceId)) {
-        setSelectedSpaceId(nextSpaces[0]?.id ?? '')
+        if (!isMounted) return
+
+        setCurrentUser(user)
+        setSpaces(nextSpaces)
+        setSelectedSpaceId((currentSpaceId) =>
+          nextSpaces.some((space) => space.id === currentSpaceId) ? currentSpaceId : (nextSpaces[0]?.id ?? ''),
+        )
+      } catch {
+        if (isMounted) setLoadError('Не удалось загрузить пространства. Проверьте источник данных и попробуйте снова.')
+      } finally {
+        if (isMounted) setIsLoading(false)
       }
-      setIsLoading(false)
     }
 
     void loadSpaces()
@@ -107,7 +132,7 @@ function App() {
     return () => {
       isMounted = false
     }
-  }, [selectedSpaceId])
+  }, [reloadKey])
 
   useEffect(() => {
     if (!selectedSpace?.id) return
@@ -115,23 +140,29 @@ function App() {
     let isMounted = true
 
     async function loadSpaceData() {
-      const [nextIdeas, nextFolders, nextCategories, nextPlan, nextHistory, nextRecommendations] = await Promise.all([
-        dataClient.getIdeas(selectedSpace.id),
-        dataClient.getFolders(selectedSpace.id),
-        dataClient.getCategories(selectedSpace.id),
-        dataClient.getPlan(selectedSpace.id),
-        dataClient.getHistory(selectedSpace.id),
-        dataClient.getRecommendations(selectedSpace.id),
-      ])
+      setLoadError(null)
 
-      if (!isMounted) return
+      try {
+        const [nextIdeas, nextFolders, nextCategories, nextPlan, nextHistory, nextRecommendations] = await Promise.all([
+          dataClient.getIdeas(selectedSpace.id),
+          dataClient.getFolders(selectedSpace.id),
+          dataClient.getCategories(selectedSpace.id),
+          dataClient.getPlan(selectedSpace.id),
+          dataClient.getHistory(selectedSpace.id),
+          dataClient.getRecommendations(selectedSpace.id),
+        ])
 
-      const plannedIds = new Set(nextPlan.map((idea) => idea.id))
-      setSpaceIdeas(nextIdeas.map((idea) => (plannedIds.has(idea.id) ? { ...idea, status: 'planned' } : idea)))
-      setFolders(nextFolders)
-      setCategories(nextCategories)
-      setSpaceHistory(nextHistory)
-      setRecommendations(nextRecommendations)
+        if (!isMounted) return
+
+        const plannedIds = new Set(nextPlan.map((idea) => idea.id))
+        setSpaceIdeas(nextIdeas.map((idea) => (plannedIds.has(idea.id) ? { ...idea, status: 'planned' } : idea)))
+        setFolders(nextFolders)
+        setCategories(nextCategories)
+        setSpaceHistory(nextHistory)
+        setRecommendations(nextRecommendations)
+      } catch {
+        if (isMounted) setLoadError('Не удалось загрузить данные пространства. Попробуйте обновить экран.')
+      }
     }
 
     void loadSpaceData()
@@ -151,14 +182,48 @@ function App() {
 
   async function saveQuickIdea() {
     if (!selectedSpace?.id || !quickIdea.trim()) return
-    const newIdea = await dataClient.createIdea(selectedSpace.id, { text: quickIdea.trim() })
-    setSpaceIdeas((currentIdeas) => [newIdea, ...currentIdeas])
-    setQuickIdea('')
+    setIsSavingIdea(true)
+    setQuickAddNotice(null)
+
+    try {
+      const newIdea = await dataClient.createIdea(selectedSpace.id, { text: quickIdea.trim() })
+      setSpaceIdeas((currentIdeas) => [newIdea, ...currentIdeas])
+      setSpaces((currentSpaces) =>
+        currentSpaces.map((space) =>
+          space.id === selectedSpace.id
+            ? {
+                ...space,
+                stats: {
+                  ...space.stats,
+                  inbox: newIdea.status === 'inbox' ? space.stats.inbox + 1 : space.stats.inbox,
+                  ideas: space.stats.ideas + 1,
+                  planned: newIdea.status === 'planned' ? space.stats.planned + 1 : space.stats.planned,
+                },
+              }
+            : space,
+        ),
+      )
+      setQuickIdea('')
+      setQuickAddNotice('Идея сохранена во входящие.')
+    } catch {
+      setQuickAddNotice('Не удалось сохранить идею. Попробуйте ещё раз.')
+    } finally {
+      setIsSavingIdea(false)
+    }
   }
 
-  if (isLoading || !selectedSpace || !currentUser) {
+  function completeGuidedTour() {
+    try {
+      localStorage.setItem(TOUR_STORAGE_KEY, 'true')
+    } catch {
+      // The tour can still close in restricted storage contexts.
+    }
+    setShowOnboarding(false)
+  }
+
+  if (isLoading) {
     return (
-      <main className="app-shell" data-theme={theme} data-direction={direction}>
+      <main className="app-shell" data-theme={theme}>
         <section className="loading-screen">
           <div className="brand-mark">V</div>
           <h1>Загружаем пространства</h1>
@@ -168,10 +233,23 @@ function App() {
     )
   }
 
-  return (
-    <main className="app-shell" data-theme={theme} data-direction={direction}>
-      {showOnboarding && <Onboarding onClose={() => setShowOnboarding(false)} />}
+  if (loadError || !selectedSpace || !currentUser) {
+    return (
+      <main className="app-shell" data-theme={theme}>
+        <section className="loading-screen">
+          <div className="brand-mark">V</div>
+          <h1>Что-то не загрузилось</h1>
+          <p>{loadError ?? 'Пока нет доступного пространства.'}</p>
+          <button className="primary-button" type="button" onClick={() => setReloadKey((key) => key + 1)}>
+            Повторить
+          </button>
+        </section>
+      </main>
+    )
+  }
 
+  return (
+    <main className="app-shell" data-theme={theme}>
       <aside className="sidebar" aria-label="Навигация Vmestra">
         <div className="brand">
           <div className="brand-mark">V</div>
@@ -186,13 +264,24 @@ function App() {
           Быстро добавить
         </button>
 
-        <nav className="nav-list">
+        <nav className="nav-list" data-tour-id="spaces-nav">
           {views.map((view) => {
             const Icon = view.icon
             return (
               <button
                 className={activeView === view.id ? 'active' : ''}
                 key={view.id}
+                data-tour-id={
+                  view.id === 'inbox'
+                    ? 'inbox-nav'
+                    : view.id === 'recommendations'
+                      ? 'collections-nav'
+                      : view.id === 'planning'
+                        ? 'planning-nav'
+                        : view.id === 'history'
+                          ? 'history-nav'
+                          : undefined
+                }
                 type="button"
                 onClick={() => setActiveView(view.id)}
               >
@@ -205,7 +294,7 @@ function App() {
 
         <div className="sidebar-panel">
           <span className="eyebrow">Текущее пространство</span>
-          <strong>{selectedSpace.title}</strong>
+          <strong>{selectedSpaceWithLiveStats.title}</strong>
           <p>Поиск похожих идей и рекомендации ограничены только им.</p>
         </div>
       </aside>
@@ -213,14 +302,26 @@ function App() {
       <section className="workspace">
         <Header
           activeView={activeView}
-          direction={direction}
-          setDirection={setDirection}
           theme={theme}
           setTheme={setTheme}
-          selectedSpace={selectedSpace}
+          selectedSpace={selectedSpaceWithLiveStats}
           setActiveView={setActiveView}
           currentUser={currentUser}
         />
+
+        {activeView !== 'spaces' && (
+          <section className="current-space-strip">
+            <div>
+              <span className="eyebrow">Вы внутри пространства</span>
+              <strong>{selectedSpaceWithLiveStats.title}</strong>
+              <p>{selectedSpaceWithLiveStats.description}</p>
+            </div>
+            <button className="secondary-button" type="button" onClick={() => setActiveView('spaces')}>
+              <Compass size={17} />
+              Все пространства
+            </button>
+          </section>
+        )}
 
         {activeView === 'spaces' && (
           <SpacesScreen
@@ -236,10 +337,12 @@ function App() {
 
         {activeView === 'space' && (
           <SpaceScreen
-            selectedSpace={selectedSpace}
+            selectedSpace={selectedSpaceWithLiveStats}
             quickIdea={quickIdea}
             setQuickIdea={setQuickIdea}
             onSaveQuickIdea={saveQuickIdea}
+            isSavingIdea={isSavingIdea}
+            quickAddNotice={quickAddNotice}
             suggestedTags={suggestedTags}
             inboxIdeas={inboxIdeas}
             plannedIdeas={plannedIdeas}
@@ -252,24 +355,47 @@ function App() {
         {activeView === 'inbox' && <InboxScreen ideas={inboxIdeas} />}
         {activeView === 'library' && <LibraryScreen ideas={spaceIdeas} folders={folders} categories={categories} />}
         {activeView === 'recommendations' && (
-          <RecommendationsScreen selectedSpace={selectedSpace} recommendations={recommendations} />
+          <RecommendationsScreen selectedSpace={selectedSpaceWithLiveStats} recommendations={recommendations} />
         )}
         {activeView === 'planning' && (
-          <PlanningScreen selectedSpace={selectedSpace} plannedIdeas={plannedIdeas} spaceIdeas={spaceIdeas} />
+          <PlanningScreen selectedSpace={selectedSpaceWithLiveStats} plannedIdeas={plannedIdeas} spaceIdeas={spaceIdeas} />
         )}
         {activeView === 'calendar' && <CalendarScreen plannedIdeas={plannedIdeas} />}
         {activeView === 'history' && <HistoryScreen entries={spaceHistory} />}
         {activeView === 'profile' && <ProfileScreen currentUser={currentUser} onCreateGroup={() => setActiveView('group')} />}
         {activeView === 'group' && <GroupScreen />}
       </section>
+
+      {showOnboarding && (
+        <GuidedTour
+          activeStep={tourStep}
+          onBack={() =>
+            setTourStep((step) => {
+              const nextStep = Math.max(0, step - 1)
+              setActiveView(tourSteps[nextStep].view)
+              return nextStep
+            })
+          }
+          onClose={completeGuidedTour}
+          onNext={() => {
+            if (tourStep >= tourSteps.length - 1) {
+              completeGuidedTour()
+              return
+            }
+            setTourStep((step) => {
+              const nextStep = step + 1
+              setActiveView(tourSteps[nextStep].view)
+              return nextStep
+            })
+          }}
+        />
+      )}
     </main>
   )
 }
 
 function Header({
   activeView,
-  direction,
-  setDirection,
   theme,
   setTheme,
   selectedSpace,
@@ -277,8 +403,6 @@ function Header({
   currentUser,
 }: {
   activeView: View
-  direction: VisualDirection
-  setDirection: (value: VisualDirection) => void
   theme: 'light' | 'dark'
   setTheme: (value: 'light' | 'dark') => void
   selectedSpace: Space
@@ -300,20 +424,6 @@ function Header({
           <span>Поиск в «{selectedSpace.title}»</span>
         </div>
 
-        <div className="segmented" aria-label="Визуальное направление">
-          {directions.map((item) => (
-            <button
-              className={direction === item.id ? 'active' : ''}
-              key={item.id}
-              title={item.note}
-              type="button"
-              onClick={() => setDirection(item.id)}
-            >
-              {item.title}
-            </button>
-          ))}
-        </div>
-
         <button
           className="icon-button"
           title="Переключить тему"
@@ -331,39 +441,208 @@ function Header({
   )
 }
 
-function Onboarding({ onClose }: { onClose: () => void }) {
-  const steps = [
-    ['Сохранить идею', 'Поле быстрого добавления сначала сохраняет текст, а уточнение можно сделать позже.'],
-    ['Выбрать пространство', 'Идеи личного и групповых пространств не смешиваются.'],
-    ['Подобрать вечер', 'Подборки используют простые фильтры и моковые причины, без обещания AI в MVP.'],
-    ['Запланировать', 'Можно выбрать дату, время и участников внутри текущей группы.'],
-    ['Запомнить историю', 'После активности остаётся общая запись и опциональный личный комментарий.'],
-  ]
+const tourSteps: Array<{
+  id: string
+  text: string
+  view: View
+  placement: 'right' | 'bottom'
+}> = [
+  {
+    id: 'spaces-nav',
+    text: 'Сначала выбери, где живут идеи: личное, друзья, семья или отдельная группа.',
+    view: 'spaces',
+    placement: 'right',
+  },
+  {
+    id: 'space-card',
+    text: 'Идеи из разных пространств не смешиваются.',
+    view: 'spaces',
+    placement: 'right',
+  },
+  {
+    id: 'quick-add',
+    text: 'Запиши идею коротко. Разобрать по папкам можно потом.',
+    view: 'space',
+    placement: 'bottom',
+  },
+  {
+    id: 'inbox-nav',
+    text: 'Сюда попадает всё, что ещё не разобрано.',
+    view: 'inbox',
+    placement: 'right',
+  },
+  {
+    id: 'collections-nav',
+    text: 'Здесь можно быстро выбрать, чем заняться.',
+    view: 'recommendations',
+    placement: 'right',
+  },
+  {
+    id: 'planning-nav',
+    text: 'Когда решили — добавь дату, время и участников.',
+    view: 'planning',
+    placement: 'right',
+  },
+  {
+    id: 'history-nav',
+    text: 'То, что сделали, остаётся памятью пространства.',
+    view: 'history',
+    placement: 'right',
+  },
+]
+
+type TourPlacement = 'right' | 'bottom'
+
+type TourLayout = {
+  spotlight: CSSProperties
+  card: CSSProperties
+  placement: TourPlacement
+}
+
+const tourSpotlightPadding = 8
+const tourCardWidth = 340
+const tourCardEstimatedHeight = 220
+const tourGap = 18
+const tourViewportMargin = 14
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), Math.max(min, max))
+}
+
+function getTourLayout(rect: DOMRect, preferredPlacement: TourPlacement): TourLayout {
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+  const target = {
+    width: Math.min(rect.width + tourSpotlightPadding * 2, viewportWidth - tourViewportMargin * 2),
+    height: Math.min(rect.height + tourSpotlightPadding * 2, viewportHeight - tourViewportMargin * 2),
+    left: 0,
+    top: 0,
+  }
+  target.left = clamp(rect.left - tourSpotlightPadding, tourViewportMargin, viewportWidth - target.width - tourViewportMargin)
+  target.top = clamp(rect.top - tourSpotlightPadding, tourViewportMargin, viewportHeight - target.height - tourViewportMargin)
+
+  if (viewportWidth <= 680) {
+    const mobileSpotlight = {
+      width: Math.min(rect.width + tourSpotlightPadding * 2, viewportWidth),
+      height: Math.min(rect.height + tourSpotlightPadding * 2, viewportHeight),
+      left: 0,
+      top: 0,
+    }
+    mobileSpotlight.left = clamp(rect.left - tourSpotlightPadding, 0, viewportWidth - mobileSpotlight.width)
+    mobileSpotlight.top = clamp(rect.top - tourSpotlightPadding, 0, viewportHeight - mobileSpotlight.height)
+
+    return {
+      spotlight: mobileSpotlight,
+      card: {
+        left: tourViewportMargin,
+        right: tourViewportMargin,
+        bottom: 18,
+        top: 'auto',
+        width: 'auto',
+      },
+      placement: 'bottom',
+    }
+  }
+
+  const canPlaceRight = target.left + target.width + tourGap + tourCardWidth <= viewportWidth - tourViewportMargin
+  const placement = preferredPlacement === 'right' && canPlaceRight ? 'right' : 'bottom'
+
+  if (placement === 'right') {
+    return {
+      spotlight: target,
+      card: {
+        left: target.left + target.width + tourGap,
+        top: clamp(target.top, tourViewportMargin, viewportHeight - tourCardEstimatedHeight - tourViewportMargin),
+      },
+      placement,
+    }
+  }
+
+  const cardTop =
+    target.top + target.height + tourGap + tourCardEstimatedHeight <= viewportHeight - tourViewportMargin
+      ? target.top + target.height + tourGap
+      : target.top - tourCardEstimatedHeight - tourGap
+
+  return {
+    spotlight: target,
+    card: {
+      left: clamp(target.left, tourViewportMargin, viewportWidth - tourCardWidth - tourViewportMargin),
+      top: clamp(cardTop, tourViewportMargin, viewportHeight - tourCardEstimatedHeight - tourViewportMargin),
+    },
+    placement,
+  }
+}
+
+function GuidedTour({
+  activeStep,
+  onBack,
+  onClose,
+  onNext,
+}: {
+  activeStep: number
+  onBack: () => void
+  onClose: () => void
+  onNext: () => void
+}) {
+  const step = tourSteps[activeStep]
+  const isLastStep = activeStep === tourSteps.length - 1
+  const [layout, setLayout] = useState<TourLayout | null>(null)
+
+  useLayoutEffect(() => {
+    let frame = 0
+
+    function updateLayout() {
+      const element = document.querySelector(`[data-tour-id="${step.id}"]`)
+      if (!element) return
+
+      const currentRect = element.getBoundingClientRect()
+      const blockPosition =
+        window.innerWidth <= 680 && currentRect.height > window.innerHeight * 0.38 ? 'start' : 'center'
+      element.scrollIntoView({ block: blockPosition, inline: 'center', behavior: 'auto' })
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        setLayout(getTourLayout(element.getBoundingClientRect(), step.placement))
+      })
+    }
+
+    updateLayout()
+    window.addEventListener('resize', updateLayout)
+    window.addEventListener('scroll', updateLayout, true)
+
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('resize', updateLayout)
+      window.removeEventListener('scroll', updateLayout, true)
+    }
+  }, [step.id, step.placement])
+
+  const placement = layout?.placement ?? step.placement
 
   return (
-    <div className="onboarding">
-      <div className="onboarding-card">
-        <div className="onboarding-header">
-          <span className="eyebrow">Мини-онбординг</span>
-          <button type="button" onClick={onClose}>
+    <div className="tour-layer">
+      <div className="tour-scrim" />
+      <div className="tour-spotlight" style={layout?.spotlight} />
+      <aside className={`tour-card tour-card-${placement}`} style={layout?.card}>
+        <span className="eyebrow">
+          Шаг {activeStep + 1} из {tourSteps.length}
+        </span>
+        <p>{step.text}</p>
+        <div className="tour-arrow" />
+        <div className="tour-actions">
+          <button className="text-button" type="button" onClick={onClose}>
             Пропустить
           </button>
+          <div>
+            <button className="secondary-button" disabled={activeStep === 0} type="button" onClick={onBack}>
+              Назад
+            </button>
+            <button className="primary-button" type="button" onClick={isLastStep ? onClose : onNext}>
+              {isLastStep ? 'Готово' : 'Далее'}
+              <ChevronRight size={17} />
+            </button>
+          </div>
         </div>
-        <h2>Vmestra помогает не терять идеи и мягко выбирать, чем заняться</h2>
-        <div className="onboarding-steps">
-          {steps.map(([title, note], index) => (
-            <div className="onboarding-step" key={title}>
-              <span>{index + 1}</span>
-              <strong>{title}</strong>
-              <p>{note}</p>
-            </div>
-          ))}
-        </div>
-        <button className="primary-button" type="button" onClick={onClose}>
-          Перейти к прототипу
-          <ChevronRight size={17} />
-        </button>
-      </div>
+      </aside>
     </div>
   )
 }
@@ -394,10 +673,11 @@ function SpacesScreen({
         </div>
 
         <div className="space-list">
-          {spaces.map((space) => (
+          {spaces.map((space, index) => (
             <button
               className={`space-row ${selectedSpaceId === space.id ? 'selected' : ''}`}
               key={space.id}
+              data-tour-id={index === 0 ? 'space-card' : undefined}
               type="button"
               onClick={() => onSelect(space.id)}
             >
@@ -432,6 +712,8 @@ function SpaceScreen({
   quickIdea,
   setQuickIdea,
   onSaveQuickIdea,
+  isSavingIdea,
+  quickAddNotice,
   suggestedTags,
   inboxIdeas,
   plannedIdeas,
@@ -443,6 +725,8 @@ function SpaceScreen({
   quickIdea: string
   setQuickIdea: (value: string) => void
   onSaveQuickIdea: () => void
+  isSavingIdea: boolean
+  quickAddNotice: string | null
   suggestedTags: string[]
   inboxIdeas: Idea[]
   plannedIdeas: Idea[]
@@ -452,13 +736,20 @@ function SpaceScreen({
 }) {
   return (
     <div className="space-screen">
-      <section className="section-band quick-band">
+      <section className="section-band quick-band" data-tour-id="quick-add">
         <div>
           <span className="eyebrow">{selectedSpace.kind === 'personal' ? 'Личное' : 'Группа'}</span>
           <h2>{selectedSpace.title}</h2>
           <p>{selectedSpace.description}</p>
         </div>
-        <QuickAdd value={quickIdea} onChange={setQuickIdea} onSave={onSaveQuickIdea} suggestedTags={suggestedTags} />
+        <QuickAdd
+          value={quickIdea}
+          onChange={setQuickIdea}
+          onSave={onSaveQuickIdea}
+          isSaving={isSavingIdea}
+          notice={quickAddNotice}
+          suggestedTags={suggestedTags}
+        />
       </section>
 
       <section className="metrics-row">
@@ -496,11 +787,15 @@ function QuickAdd({
   value,
   onChange,
   onSave,
+  isSaving,
+  notice,
   suggestedTags,
 }: {
   value: string
   onChange: (value: string) => void
   onSave: () => void
+  isSaving: boolean
+  notice: string | null
   suggestedTags: string[]
 }) {
   return (
@@ -519,11 +814,12 @@ function QuickAdd({
             </span>
           ))}
         </div>
-        <button className="primary-button" type="button" onClick={onSave}>
-          Сохранить
+        <button className="primary-button" type="button" disabled={isSaving || !value.trim()} onClick={onSave}>
+          {isSaving ? 'Сохраняем' : 'Сохранить'}
           <Check size={17} />
         </button>
       </div>
+      {notice && <p className="form-note">{notice}</p>}
     </div>
   )
 }
@@ -538,7 +834,7 @@ function InboxScreen({ ideas }: { ideas: Idea[] }) {
         </div>
         <span className="soft-badge">{ideas.length} ждут уточнения</span>
       </div>
-      <IdeaList ideas={ideas} inboxMode />
+      <IdeaList emptyText="Во входящих пока тихо. Новые быстрые идеи будут появляться здесь." ideas={ideas} inboxMode />
     </section>
   )
 }
@@ -562,6 +858,7 @@ function LibraryScreen({ ideas, folders, categories }: { ideas: Idea[]; folders:
             </div>
           ))}
         </div>
+        {folders.length === 0 && <EmptyState text="Папки появятся здесь, когда в пространстве будет первый справочник." />}
         <IdeaList ideas={ideas} />
       </section>
 
@@ -575,6 +872,7 @@ function LibraryScreen({ ideas, folders, categories }: { ideas: Idea[]; folders:
             </span>
           ))}
         </div>
+        {ideas.every((idea) => idea.tags.length === 0) && <EmptyState text="Теги пока не заданы." compact />}
         <span className="eyebrow spacing-top">Категории</span>
         <div className="tag-cloud">
           {categories.map((category) => (
@@ -583,6 +881,7 @@ function LibraryScreen({ ideas, folders, categories }: { ideas: Idea[]; folders:
             </span>
           ))}
         </div>
+        {categories.length === 0 && <EmptyState text="Категории пока не заданы." compact />}
       </aside>
     </div>
   )
@@ -632,16 +931,24 @@ function PlanningScreen({
           <label>
             Идея
             <select defaultValue={plannedIdeas[0]?.id}>
-              {spaceIdeas.map((idea) => (
-                <option key={idea.id} value={idea.id}>
-                  {idea.title}
-                </option>
-              ))}
+              {spaceIdeas.length === 0 ? (
+                <option>Сначала сохраните идею</option>
+              ) : (
+                spaceIdeas.map((idea) => (
+                  <option key={idea.id} value={idea.id}>
+                    {idea.title}
+                  </option>
+                ))
+              )}
             </select>
           </label>
           <label>
-            Когда
-            <input defaultValue="2026-06-12T20:00" type="datetime-local" />
+            Дата
+            <input defaultValue="2026-06-12" type="date" />
+          </label>
+          <label>
+            Время
+            <input defaultValue="20:00" type="time" />
           </label>
           <div>
             <span className="field-label">Участники</span>
@@ -663,7 +970,7 @@ function PlanningScreen({
 
       <aside className="section-band side-band">
         <span className="eyebrow">Уже в планах</span>
-        <IdeaList ideas={plannedIdeas} />
+        <IdeaList emptyText="Пока ничего не запланировано. Идеи всё равно остаются доступными в копилке." ideas={plannedIdeas} />
       </aside>
     </div>
   )
@@ -690,6 +997,7 @@ function CalendarScreen({ plannedIdeas }: { plannedIdeas: Idea[] }) {
           </div>
         ))}
       </div>
+      {plannedIdeas.length === 0 && <EmptyState text="В календаре пока нет будущих планов." />}
     </section>
   )
 }
@@ -704,16 +1012,20 @@ function HistoryScreen({ entries }: { entries: HistoryEntry[] }) {
         </div>
       </div>
       <div className="timeline">
-        {entries.map((entry) => (
-          <article className="timeline-entry" key={entry.id}>
-            <time>{entry.date}</time>
-            <div>
-              <strong>{entry.title}</strong>
-              <p>{entry.note}</p>
-              {entry.privateNote && <span>Личный комментарий: {entry.privateNote}</span>}
-            </div>
-          </article>
-        ))}
+        {entries.length === 0 ? (
+          <EmptyState text="Здесь появится память о том, что уже получилось сделать." />
+        ) : (
+          entries.map((entry) => (
+            <article className="timeline-entry" key={entry.id}>
+              <time>{entry.date}</time>
+              <div>
+                <strong>{entry.title}</strong>
+                <p>{entry.note}</p>
+                {entry.privateNote && <span>Личный комментарий: {entry.privateNote}</span>}
+              </div>
+            </article>
+          ))
+        )}
       </div>
     </section>
   )
@@ -819,58 +1131,70 @@ function RecommendationCards({
 }) {
   return (
     <div className={compact ? 'recommendation-list compact' : 'recommendation-list'}>
-      {recommendations.map((recommendation) => (
-        <article className="recommendation-card" key={recommendation.id}>
-          <div className="recommendation-icon">
-            <Wand2 size={17} />
-          </div>
-          <div>
-            <strong>{recommendation.title}</strong>
-            <p>{recommendation.reason}</p>
-            <div className="tag-row">
-              {recommendation.filters.map((filter) => (
-                <span className="tag" key={filter}>
-                  {filter}
-                </span>
-              ))}
+      {recommendations.length === 0 ? (
+        <EmptyState text="Подборки появятся, когда в пространстве будет больше идей и тегов." />
+      ) : (
+        recommendations.map((recommendation) => (
+          <article className="recommendation-card" key={recommendation.id}>
+            <div className="recommendation-icon">
+              <Wand2 size={17} />
             </div>
-          </div>
-        </article>
-      ))}
+            <div>
+              <strong>{recommendation.title}</strong>
+              <p>{recommendation.reason}</p>
+              <div className="tag-row">
+                {recommendation.filters.map((filter) => (
+                  <span className="tag" key={filter}>
+                    {filter}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </article>
+        ))
+      )}
     </div>
   )
 }
 
-function IdeaList({ ideas, inboxMode = false }: { ideas: Idea[]; inboxMode?: boolean }) {
+function IdeaList({ ideas, inboxMode = false, emptyText }: { ideas: Idea[]; inboxMode?: boolean; emptyText?: string }) {
   return (
     <div className="idea-list">
-      {ideas.map((idea) => (
-        <article className="idea-card" key={idea.id}>
-          <div>
-            <span className="idea-folder">
-              <FolderOpen size={14} />
-              {idea.folder}
-            </span>
-            <h3>{idea.title}</h3>
-            <p>{idea.note}</p>
-            <div className="tag-row">
-              {idea.tags.map((tag) => (
-                <span className="tag" key={tag}>
-                  {tag}
-                </span>
-              ))}
+      {ideas.length === 0 ? (
+        <EmptyState text={emptyText ?? 'Идей пока нет. Быстрое сохранение поможет начать с короткого текста.'} />
+      ) : (
+        ideas.map((idea) => (
+          <article className="idea-card" key={idea.id}>
+            <div>
+              <span className="idea-folder">
+                <FolderOpen size={14} />
+                {idea.folder}
+              </span>
+              <h3>{idea.title}</h3>
+              <p>{idea.note}</p>
+              <div className="tag-row">
+                {idea.tags.map((tag) => (
+                  <span className="tag" key={tag}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="idea-side">
-            <span className="status-pill">
-              {idea.status === 'planned' ? 'Запланировано' : inboxMode ? 'Уточнить' : idea.category}
-            </span>
-            {idea.similarIdeaIds && <span className="similar-note">есть похожая внутри пространства</span>}
-          </div>
-        </article>
-      ))}
+            <div className="idea-side">
+              <span className="status-pill">
+                {idea.status === 'planned' ? 'Запланировано' : inboxMode ? 'Уточнить' : idea.category}
+              </span>
+              {idea.similarIdeaIds && <span className="similar-note">есть похожая внутри пространства</span>}
+            </div>
+          </article>
+        ))
+      )}
     </div>
   )
+}
+
+function EmptyState({ text, compact = false }: { text: string; compact?: boolean }) {
+  return <div className={compact ? 'empty-state compact' : 'empty-state'}>{text}</div>
 }
 
 export default App

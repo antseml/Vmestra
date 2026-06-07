@@ -1,6 +1,5 @@
 export type SpaceKind = 'personal' | 'group'
 export type IdeaStatus = 'inbox' | 'saved' | 'planned' | 'memory'
-export type VisualDirection = 'minimal' | 'warm' | 'dashboard'
 
 export type Member = {
   id: string
@@ -273,13 +272,28 @@ export const history: HistoryEntry[] = [
 
 export const currentUser = members[0]
 
+function withActualStats(space: Space): Space {
+  const spaceIdeas = ideas.filter((idea) => idea.spaceId === space.id)
+  const spaceHistory = history.filter((entry) => entry.spaceId === space.id)
+
+  return {
+    ...space,
+    stats: {
+      inbox: spaceIdeas.filter((idea) => idea.status === 'inbox').length,
+      ideas: spaceIdeas.length,
+      planned: spaceIdeas.filter((idea) => idea.status === 'planned').length,
+      memories: spaceHistory.length,
+    },
+  }
+}
+
 export const mockApi = {
   async getSpaces(userId?: string) {
     void userId
-    return spaces
+    return spaces.map(withActualStats)
   },
   async getSpace(spaceId: string) {
-    return spaces.find((space) => space.id === spaceId) ?? spaces[0]
+    return withActualStats(spaces.find((space) => space.id === spaceId) ?? spaces[0])
   },
   async getMembers(spaceId: string) {
     return (spaces.find((space) => space.id === spaceId) ?? spaces[0]).members
@@ -305,8 +319,11 @@ export const mockApi = {
     return newIdea
   },
   async getFolders(spaceId: string) {
-    void spaceId
-    return folders
+    const spaceIdeas = ideas.filter((idea) => idea.spaceId === spaceId)
+    return folders.map((folder) => ({
+      ...folder,
+      count: spaceIdeas.filter((idea) => idea.folder === folder.name).length,
+    }))
   },
   async getTags(spaceId: string) {
     return Array.from(new Set(ideas.filter((idea) => idea.spaceId === spaceId).flatMap((idea) => idea.tags)))

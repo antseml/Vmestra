@@ -30,7 +30,8 @@ public static class VmestraEndpoints
             FoundOrNotFound(store.UpdateSpace(spaceId, new UpdateSpaceRequest(null, SpaceState.Archived))));
 
         var members = spaces.MapGroup("/{spaceId:guid}/members").WithTags("Space members");
-        members.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) => Results.Ok(store.GetMembers(spaceId)));
+        members.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) =>
+            SpaceExists(store, spaceId) ? Results.Ok(store.GetMembers(spaceId)) : Results.NotFound());
         members.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, AddSpaceMemberRequest request) =>
             FoundOrCreated($"/api/spaces/{spaceId}/members", store.AddMember(spaceId, request)));
         members.MapPatch("/{memberId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid memberId, UpdateSpaceMemberRequest request) =>
@@ -40,7 +41,7 @@ public static class VmestraEndpoints
 
         var ideas = spaces.MapGroup("/{spaceId:guid}/ideas").WithTags("Ideas");
         ideas.MapGet("/", (InMemoryVmestraStore store, Guid spaceId, Guid? folderId, Guid? tagId, Guid? categoryId, IdeaState? state, bool includeArchived = false) =>
-            Results.Ok(store.GetIdeas(spaceId, folderId, tagId, categoryId, state, includeArchived)));
+            SpaceExists(store, spaceId) ? Results.Ok(store.GetIdeas(spaceId, folderId, tagId, categoryId, state, includeArchived)) : Results.NotFound());
         ideas.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, CreateIdeaRequest request) =>
             IsBlank(request.Text)
                 ? Results.BadRequest("Idea text is required.")
@@ -51,17 +52,20 @@ public static class VmestraEndpoints
             FoundOrNotFound(store.UpdateIdea(spaceId, ideaId, request)));
 
         ideas.MapGet("/{ideaId:guid}/comments", (InMemoryVmestraStore store, Guid spaceId, Guid ideaId) =>
-            Results.Ok(store.GetComments(spaceId, ideaId)));
+            store.GetIdea(spaceId, ideaId) is null ? Results.NotFound() : Results.Ok(store.GetComments(spaceId, ideaId)));
         ideas.MapPost("/{ideaId:guid}/comments", (InMemoryVmestraStore store, Guid spaceId, Guid ideaId, CreateCommentRequest request) =>
             IsBlank(request.Text)
                 ? Results.BadRequest("Comment text is required.")
                 : FoundOrCreated($"/api/spaces/{spaceId}/ideas/{ideaId}/comments", store.AddComment(spaceId, ideaId, request)));
 
         ideas.MapPost("/{ideaId:guid}/plans", (InMemoryVmestraStore store, Guid spaceId, Guid ideaId, ScheduleIdeaRequest request) =>
-            FoundOrCreated($"/api/spaces/{spaceId}/plan", store.ScheduleIdea(spaceId, ideaId, request)));
+            request.StartsAt == default
+                ? Results.BadRequest("Plan startsAt is required.")
+                : FoundOrCreated($"/api/spaces/{spaceId}/plan", store.ScheduleIdea(spaceId, ideaId, request)));
 
         var folders = spaces.MapGroup("/{spaceId:guid}/folders").WithTags("Folders");
-        folders.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) => Results.Ok(store.GetFolders(spaceId)));
+        folders.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) =>
+            SpaceExists(store, spaceId) ? Results.Ok(store.GetFolders(spaceId)) : Results.NotFound());
         folders.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, CreateNamedItemRequest request) =>
             IsBlank(request.Name) ? Results.BadRequest("Folder name is required.") : FoundOrCreated($"/api/spaces/{spaceId}/folders", store.CreateFolder(spaceId, request)));
         folders.MapPatch("/{folderId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid folderId, UpdateNamedItemRequest request) =>
@@ -70,7 +74,8 @@ public static class VmestraEndpoints
             store.RemoveFolder(spaceId, folderId) ? Results.NoContent() : Results.NotFound());
 
         var tags = spaces.MapGroup("/{spaceId:guid}/tags").WithTags("Tags");
-        tags.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) => Results.Ok(store.GetTags(spaceId)));
+        tags.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) =>
+            SpaceExists(store, spaceId) ? Results.Ok(store.GetTags(spaceId)) : Results.NotFound());
         tags.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, CreateTagRequest request) =>
             IsBlank(request.Name) ? Results.BadRequest("Tag name is required.") : FoundOrCreated($"/api/spaces/{spaceId}/tags", store.CreateTag(spaceId, request)));
         tags.MapPatch("/{tagId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid tagId, UpdateTagRequest request) =>
@@ -79,7 +84,8 @@ public static class VmestraEndpoints
             store.RemoveTag(spaceId, tagId) ? Results.NoContent() : Results.NotFound());
 
         var categories = spaces.MapGroup("/{spaceId:guid}/categories").WithTags("Categories");
-        categories.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) => Results.Ok(store.GetCategories(spaceId)));
+        categories.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) =>
+            SpaceExists(store, spaceId) ? Results.Ok(store.GetCategories(spaceId)) : Results.NotFound());
         categories.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, CreateNamedItemRequest request) =>
             IsBlank(request.Name) ? Results.BadRequest("Category name is required.") : FoundOrCreated($"/api/spaces/{spaceId}/categories", store.CreateCategory(spaceId, request)));
         categories.MapPatch("/{categoryId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid categoryId, UpdateNamedItemRequest request) =>
@@ -89,12 +95,13 @@ public static class VmestraEndpoints
 
         var plan = spaces.MapGroup("/{spaceId:guid}/plan").WithTags("Planning");
         plan.MapGet("/", (InMemoryVmestraStore store, Guid spaceId, DateTimeOffset? from, DateTimeOffset? to) =>
-            Results.Ok(store.GetSchedule(spaceId, from, to)));
+            SpaceExists(store, spaceId) ? Results.Ok(store.GetSchedule(spaceId, from, to)) : Results.NotFound());
         plan.MapPatch("/{scheduledIdeaId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid scheduledIdeaId, UpdateScheduledIdeaRequest request) =>
             FoundOrNotFound(store.UpdateSchedule(spaceId, scheduledIdeaId, request)));
 
         var history = spaces.MapGroup("/{spaceId:guid}/history").WithTags("History");
-        history.MapGet("/", (InMemoryVmestraStore store, Guid spaceId, Guid? ideaId) => Results.Ok(store.GetHistory(spaceId, ideaId)));
+        history.MapGet("/", (InMemoryVmestraStore store, Guid spaceId, Guid? ideaId) =>
+            SpaceExists(store, spaceId) ? Results.Ok(store.GetHistory(spaceId, ideaId)) : Results.NotFound());
         history.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, CreateHistoryEntryRequest request) =>
             IsBlank(request.Title) ? Results.BadRequest("History title is required.") : FoundOrCreated($"/api/spaces/{spaceId}/history", store.CreateHistoryEntry(spaceId, request)));
         history.MapPatch("/{entryId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid entryId, UpdateHistoryEntryRequest request) =>
@@ -104,6 +111,8 @@ public static class VmestraEndpoints
     }
 
     private static bool IsBlank(string? value) => string.IsNullOrWhiteSpace(value);
+
+    private static bool SpaceExists(InMemoryVmestraStore store, Guid spaceId) => store.GetSpace(spaceId) is not null;
 
     private static IResult FoundOrNotFound<T>(T? value) => value is null ? Results.NotFound() : Results.Ok(value);
 
