@@ -1129,6 +1129,28 @@ function PlanningScreen({
 
 function CalendarScreen({ plannedIdeas }: { plannedIdeas: Idea[] }) {
   const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+  const today = new Date()
+  const monday = new Date(today)
+  const mondayOffset = (today.getDay() + 6) % 7
+  monday.setDate(today.getDate() - mondayOffset)
+  monday.setHours(0, 0, 0, 0)
+  const weekDays = days.map((label, index) => {
+    const date = new Date(monday)
+    date.setDate(monday.getDate() + index)
+    return {
+      date,
+      key: date.toISOString().slice(0, 10),
+      label,
+      title: date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' }),
+    }
+  })
+  const ideasByDate = new Map<string, Idea[]>()
+  for (const idea of plannedIdeas) {
+    if (!idea.plannedFor) continue
+    const key = new Date(idea.plannedFor).toISOString().slice(0, 10)
+    ideasByDate.set(key, [...(ideasByDate.get(key) ?? []), idea])
+  }
+
   return (
     <section className="section-band full-band">
       <div className="section-title">
@@ -1138,13 +1160,13 @@ function CalendarScreen({ plannedIdeas }: { plannedIdeas: Idea[] }) {
         </div>
       </div>
       <div className="calendar-grid">
-        {days.map((day, index) => (
-          <div className="calendar-day" key={day}>
-            <strong>{day}</strong>
-            <span>{8 + index} июня</span>
-            {plannedIdeas[index % Math.max(plannedIdeas.length, 1)] && (
-              <p>{plannedIdeas[index % plannedIdeas.length].title}</p>
-            )}
+        {weekDays.map((day) => (
+          <div className="calendar-day" key={day.key}>
+            <strong>{day.label}</strong>
+            <span>{day.title}</span>
+            {(ideasByDate.get(day.key) ?? []).map((idea) => (
+              <p key={idea.id}>{idea.title}</p>
+            ))}
           </div>
         ))}
       </div>
