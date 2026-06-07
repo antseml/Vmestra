@@ -1,5 +1,5 @@
+using Back.Application.Services;
 using Back.Domain;
-using Back.Infrastructure;
 
 namespace Back.Api;
 
@@ -7,114 +7,87 @@ public static class VmestraEndpoints
 {
     public static IEndpointRouteBuilder MapVmestraEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/users", (InMemoryVmestraStore store) => Results.Ok(store.GetUsers()))
+        app.MapGet("/api/users", (UserService service) => service.GetUsers().ToHttpResult())
             .WithTags("Users");
 
         var spaces = app.MapGroup("/api/spaces").WithTags("Spaces");
-        spaces.MapGet("/", (InMemoryVmestraStore store, Guid? userId) => Results.Ok(store.GetSpaces(userId)));
-        spaces.MapPost("/", (InMemoryVmestraStore store, CreateSpaceRequest request) =>
-        {
-            if (IsBlank(request.Name))
-            {
-                return Results.BadRequest("Space name is required.");
-            }
-
-            var space = store.CreateSpace(request);
-            return Results.Created($"/api/spaces/{space.Id}", space);
-        });
-        spaces.MapGet("/{spaceId:guid}", (InMemoryVmestraStore store, Guid spaceId) =>
-            FoundOrNotFound(store.GetSpace(spaceId)));
-        spaces.MapPatch("/{spaceId:guid}", (InMemoryVmestraStore store, Guid spaceId, UpdateSpaceRequest request) =>
-            FoundOrNotFound(store.UpdateSpace(spaceId, request)));
-        spaces.MapPost("/{spaceId:guid}/archive", (InMemoryVmestraStore store, Guid spaceId) =>
-            FoundOrNotFound(store.UpdateSpace(spaceId, new UpdateSpaceRequest(null, SpaceState.Archived))));
+        spaces.MapGet("/", (SpaceService service, Guid? userId) => service.GetSpaces(userId).ToHttpResult());
+        spaces.MapPost("/", (SpaceService service, CreateSpaceRequest request) =>
+            service.CreateSpace(request).ToCreatedHttpResult(space => $"/api/spaces/{space.Id}"));
+        spaces.MapGet("/{spaceId:guid}", (SpaceService service, Guid spaceId) =>
+            service.GetSpace(spaceId).ToHttpResult());
+        spaces.MapPatch("/{spaceId:guid}", (SpaceService service, Guid spaceId, UpdateSpaceRequest request) =>
+            service.UpdateSpace(spaceId, request).ToHttpResult());
+        spaces.MapPost("/{spaceId:guid}/archive", (SpaceService service, Guid spaceId) =>
+            service.ArchiveSpace(spaceId).ToHttpResult());
 
         var members = spaces.MapGroup("/{spaceId:guid}/members").WithTags("Space members");
-        members.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) =>
-            SpaceExists(store, spaceId) ? Results.Ok(store.GetMembers(spaceId)) : Results.NotFound());
-        members.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, AddSpaceMemberRequest request) =>
-            FoundOrCreated($"/api/spaces/{spaceId}/members", store.AddMember(spaceId, request)));
-        members.MapPatch("/{memberId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid memberId, UpdateSpaceMemberRequest request) =>
-            FoundOrNotFound(store.UpdateMember(spaceId, memberId, request)));
-        members.MapDelete("/{memberId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid memberId) =>
-            store.RemoveMember(spaceId, memberId) ? Results.NoContent() : Results.NotFound());
+        members.MapGet("/", (SpaceService service, Guid spaceId) => service.GetMembers(spaceId).ToHttpResult());
+        members.MapPost("/", (SpaceService service, Guid spaceId, AddSpaceMemberRequest request) =>
+            service.AddMember(spaceId, request).ToCreatedHttpResult(member => $"/api/spaces/{spaceId}/members/{member.Id}"));
+        members.MapPatch("/{memberId:guid}", (SpaceService service, Guid spaceId, Guid memberId, UpdateSpaceMemberRequest request) =>
+            service.UpdateMember(spaceId, memberId, request).ToHttpResult());
+        members.MapDelete("/{memberId:guid}", (SpaceService service, Guid spaceId, Guid memberId) =>
+            service.RemoveMember(spaceId, memberId).ToNoContentResult());
 
         var ideas = spaces.MapGroup("/{spaceId:guid}/ideas").WithTags("Ideas");
-        ideas.MapGet("/", (InMemoryVmestraStore store, Guid spaceId, Guid? folderId, Guid? tagId, Guid? categoryId, IdeaState? state, bool includeArchived = false) =>
-            SpaceExists(store, spaceId) ? Results.Ok(store.GetIdeas(spaceId, folderId, tagId, categoryId, state, includeArchived)) : Results.NotFound());
-        ideas.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, CreateIdeaRequest request) =>
-            IsBlank(request.Text)
-                ? Results.BadRequest("Idea text is required.")
-                : FoundOrCreated($"/api/spaces/{spaceId}/ideas", store.CreateIdea(spaceId, request)));
-        ideas.MapGet("/{ideaId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid ideaId) =>
-            FoundOrNotFound(store.GetIdea(spaceId, ideaId)));
-        ideas.MapPatch("/{ideaId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid ideaId, UpdateIdeaRequest request) =>
-            FoundOrNotFound(store.UpdateIdea(spaceId, ideaId, request)));
+        ideas.MapGet("/", (IdeaService service, Guid spaceId, Guid? folderId, Guid? tagId, Guid? categoryId, IdeaState? state, bool includeArchived = false) =>
+            service.GetIdeas(spaceId, folderId, tagId, categoryId, state, includeArchived).ToHttpResult());
+        ideas.MapPost("/", (IdeaService service, Guid spaceId, CreateIdeaRequest request) =>
+            service.CreateIdea(spaceId, request).ToCreatedHttpResult(idea => $"/api/spaces/{spaceId}/ideas/{idea.Id}"));
+        ideas.MapGet("/{ideaId:guid}", (IdeaService service, Guid spaceId, Guid ideaId) =>
+            service.GetIdea(spaceId, ideaId).ToHttpResult());
+        ideas.MapPatch("/{ideaId:guid}", (IdeaService service, Guid spaceId, Guid ideaId, UpdateIdeaRequest request) =>
+            service.UpdateIdea(spaceId, ideaId, request).ToHttpResult());
 
-        ideas.MapGet("/{ideaId:guid}/comments", (InMemoryVmestraStore store, Guid spaceId, Guid ideaId) =>
-            store.GetIdea(spaceId, ideaId) is null ? Results.NotFound() : Results.Ok(store.GetComments(spaceId, ideaId)));
-        ideas.MapPost("/{ideaId:guid}/comments", (InMemoryVmestraStore store, Guid spaceId, Guid ideaId, CreateCommentRequest request) =>
-            IsBlank(request.Text)
-                ? Results.BadRequest("Comment text is required.")
-                : FoundOrCreated($"/api/spaces/{spaceId}/ideas/{ideaId}/comments", store.AddComment(spaceId, ideaId, request)));
+        ideas.MapGet("/{ideaId:guid}/comments", (CommentService service, Guid spaceId, Guid ideaId) =>
+            service.GetComments(spaceId, ideaId).ToHttpResult());
+        ideas.MapPost("/{ideaId:guid}/comments", (CommentService service, Guid spaceId, Guid ideaId, CreateCommentRequest request) =>
+            service.AddComment(spaceId, ideaId, request).ToCreatedHttpResult(comment => $"/api/spaces/{spaceId}/ideas/{ideaId}/comments/{comment.Id}"));
 
-        ideas.MapPost("/{ideaId:guid}/plans", (InMemoryVmestraStore store, Guid spaceId, Guid ideaId, ScheduleIdeaRequest request) =>
-            request.StartsAt == default
-                ? Results.BadRequest("Plan startsAt is required.")
-                : FoundOrCreated($"/api/spaces/{spaceId}/plan", store.ScheduleIdea(spaceId, ideaId, request)));
+        ideas.MapPost("/{ideaId:guid}/plans", (PlanningService service, Guid spaceId, Guid ideaId, ScheduleIdeaRequest request) =>
+            service.ScheduleIdea(spaceId, ideaId, request).ToCreatedHttpResult(plan => $"/api/spaces/{spaceId}/plan/{plan.Id}"));
 
         var folders = spaces.MapGroup("/{spaceId:guid}/folders").WithTags("Folders");
-        folders.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) =>
-            SpaceExists(store, spaceId) ? Results.Ok(store.GetFolders(spaceId)) : Results.NotFound());
-        folders.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, CreateNamedItemRequest request) =>
-            IsBlank(request.Name) ? Results.BadRequest("Folder name is required.") : FoundOrCreated($"/api/spaces/{spaceId}/folders", store.CreateFolder(spaceId, request)));
-        folders.MapPatch("/{folderId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid folderId, UpdateNamedItemRequest request) =>
-            FoundOrNotFound(store.UpdateFolder(spaceId, folderId, request)));
-        folders.MapDelete("/{folderId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid folderId) =>
-            store.RemoveFolder(spaceId, folderId) ? Results.NoContent() : Results.NotFound());
+        folders.MapGet("/", (ClassificationService service, Guid spaceId) => service.GetFolders(spaceId).ToHttpResult());
+        folders.MapPost("/", (ClassificationService service, Guid spaceId, CreateNamedItemRequest request) =>
+            service.CreateFolder(spaceId, request).ToCreatedHttpResult(folder => $"/api/spaces/{spaceId}/folders/{folder.Id}"));
+        folders.MapPatch("/{folderId:guid}", (ClassificationService service, Guid spaceId, Guid folderId, UpdateNamedItemRequest request) =>
+            service.UpdateFolder(spaceId, folderId, request).ToHttpResult());
+        folders.MapDelete("/{folderId:guid}", (ClassificationService service, Guid spaceId, Guid folderId) =>
+            service.RemoveFolder(spaceId, folderId).ToNoContentResult());
 
         var tags = spaces.MapGroup("/{spaceId:guid}/tags").WithTags("Tags");
-        tags.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) =>
-            SpaceExists(store, spaceId) ? Results.Ok(store.GetTags(spaceId)) : Results.NotFound());
-        tags.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, CreateTagRequest request) =>
-            IsBlank(request.Name) ? Results.BadRequest("Tag name is required.") : FoundOrCreated($"/api/spaces/{spaceId}/tags", store.CreateTag(spaceId, request)));
-        tags.MapPatch("/{tagId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid tagId, UpdateTagRequest request) =>
-            FoundOrNotFound(store.UpdateTag(spaceId, tagId, request)));
-        tags.MapDelete("/{tagId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid tagId) =>
-            store.RemoveTag(spaceId, tagId) ? Results.NoContent() : Results.NotFound());
+        tags.MapGet("/", (ClassificationService service, Guid spaceId) => service.GetTags(spaceId).ToHttpResult());
+        tags.MapPost("/", (ClassificationService service, Guid spaceId, CreateTagRequest request) =>
+            service.CreateTag(spaceId, request).ToCreatedHttpResult(tag => $"/api/spaces/{spaceId}/tags/{tag.Id}"));
+        tags.MapPatch("/{tagId:guid}", (ClassificationService service, Guid spaceId, Guid tagId, UpdateTagRequest request) =>
+            service.UpdateTag(spaceId, tagId, request).ToHttpResult());
+        tags.MapDelete("/{tagId:guid}", (ClassificationService service, Guid spaceId, Guid tagId) =>
+            service.RemoveTag(spaceId, tagId).ToNoContentResult());
 
         var categories = spaces.MapGroup("/{spaceId:guid}/categories").WithTags("Categories");
-        categories.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) =>
-            SpaceExists(store, spaceId) ? Results.Ok(store.GetCategories(spaceId)) : Results.NotFound());
-        categories.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, CreateNamedItemRequest request) =>
-            IsBlank(request.Name) ? Results.BadRequest("Category name is required.") : FoundOrCreated($"/api/spaces/{spaceId}/categories", store.CreateCategory(spaceId, request)));
-        categories.MapPatch("/{categoryId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid categoryId, UpdateNamedItemRequest request) =>
-            FoundOrNotFound(store.UpdateCategory(spaceId, categoryId, request)));
-        categories.MapDelete("/{categoryId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid categoryId) =>
-            store.RemoveCategory(spaceId, categoryId) ? Results.NoContent() : Results.NotFound());
+        categories.MapGet("/", (ClassificationService service, Guid spaceId) => service.GetCategories(spaceId).ToHttpResult());
+        categories.MapPost("/", (ClassificationService service, Guid spaceId, CreateNamedItemRequest request) =>
+            service.CreateCategory(spaceId, request).ToCreatedHttpResult(category => $"/api/spaces/{spaceId}/categories/{category.Id}"));
+        categories.MapPatch("/{categoryId:guid}", (ClassificationService service, Guid spaceId, Guid categoryId, UpdateNamedItemRequest request) =>
+            service.UpdateCategory(spaceId, categoryId, request).ToHttpResult());
+        categories.MapDelete("/{categoryId:guid}", (ClassificationService service, Guid spaceId, Guid categoryId) =>
+            service.RemoveCategory(spaceId, categoryId).ToNoContentResult());
 
         var plan = spaces.MapGroup("/{spaceId:guid}/plan").WithTags("Planning");
-        plan.MapGet("/", (InMemoryVmestraStore store, Guid spaceId, DateTimeOffset? from, DateTimeOffset? to) =>
-            SpaceExists(store, spaceId) ? Results.Ok(store.GetSchedule(spaceId, from, to)) : Results.NotFound());
-        plan.MapPatch("/{scheduledIdeaId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid scheduledIdeaId, UpdateScheduledIdeaRequest request) =>
-            FoundOrNotFound(store.UpdateSchedule(spaceId, scheduledIdeaId, request)));
+        plan.MapGet("/", (PlanningService service, Guid spaceId, DateTimeOffset? from, DateTimeOffset? to) =>
+            service.GetSchedule(spaceId, from, to).ToHttpResult());
+        plan.MapPatch("/{scheduledIdeaId:guid}", (PlanningService service, Guid spaceId, Guid scheduledIdeaId, UpdateScheduledIdeaRequest request) =>
+            service.UpdateSchedule(spaceId, scheduledIdeaId, request).ToHttpResult());
 
         var history = spaces.MapGroup("/{spaceId:guid}/history").WithTags("History");
-        history.MapGet("/", (InMemoryVmestraStore store, Guid spaceId, Guid? ideaId) =>
-            SpaceExists(store, spaceId) ? Results.Ok(store.GetHistory(spaceId, ideaId)) : Results.NotFound());
-        history.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, CreateHistoryEntryRequest request) =>
-            IsBlank(request.Title) ? Results.BadRequest("History title is required.") : FoundOrCreated($"/api/spaces/{spaceId}/history", store.CreateHistoryEntry(spaceId, request)));
-        history.MapPatch("/{entryId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid entryId, UpdateHistoryEntryRequest request) =>
-            FoundOrNotFound(store.UpdateHistoryEntry(spaceId, entryId, request)));
+        history.MapGet("/", (HistoryService service, Guid spaceId, Guid? ideaId) => service.GetHistory(spaceId, ideaId).ToHttpResult());
+        history.MapPost("/", (HistoryService service, Guid spaceId, CreateHistoryEntryRequest request) =>
+            service.CreateHistoryEntry(spaceId, request).ToCreatedHttpResult(entry => $"/api/spaces/{spaceId}/history/{entry.Id}"));
+        history.MapPatch("/{entryId:guid}", (HistoryService service, Guid spaceId, Guid entryId, UpdateHistoryEntryRequest request) =>
+            service.UpdateHistoryEntry(spaceId, entryId, request).ToHttpResult());
 
         return app;
     }
-
-    private static bool IsBlank(string? value) => string.IsNullOrWhiteSpace(value);
-
-    private static bool SpaceExists(InMemoryVmestraStore store, Guid spaceId) => store.GetSpace(spaceId) is not null;
-
-    private static IResult FoundOrNotFound<T>(T? value) => value is null ? Results.NotFound() : Results.Ok(value);
-
-    private static IResult FoundOrCreated<T>(string location, T? value) => value is null ? Results.NotFound() : Results.Created(location, value);
 }

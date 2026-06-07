@@ -1,29 +1,23 @@
 import {
   Archive,
   CalendarDays,
-  Check,
-  ChevronRight,
-  Clock3,
-  Compass,
   FolderOpen,
   History,
   Inbox,
-  LayoutDashboard,
-  Moon,
   Plus,
-  Search,
-  Settings,
-  Sparkles,
-  Sun,
-  Tags,
   UserPlus,
   Users,
   Wand2,
 } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type ElementType } from 'react'
 import './App.css'
 import { DEFAULT_DEMO_USER_ID } from './api/apiContract'
 import { dataClient, dataSourceLabel } from './api/dataClient'
+import { type View } from './appNavigation'
+import { AppLayout } from './components/AppLayout'
+import { QuickAdd } from './components/QuickAdd'
+import { GuidedTour } from './features/guidedTour/GuidedTour'
+import { markGuidedTourCompleted, shouldShowGuidedTour, tourSteps } from './features/guidedTour/guidedTourModel'
 import {
   type Folder,
   type HistoryEntry,
@@ -32,40 +26,7 @@ import {
   type Recommendation,
   type Space,
 } from './mock/vmestraData'
-
-type View =
-  | 'spaces'
-  | 'space'
-  | 'inbox'
-  | 'library'
-  | 'recommendations'
-  | 'planning'
-  | 'calendar'
-  | 'history'
-  | 'profile'
-  | 'group'
-
-const views: { id: View; title: string; icon: React.ElementType }[] = [
-  { id: 'spaces', title: 'Пространства', icon: Compass },
-  { id: 'space', title: 'Обзор', icon: LayoutDashboard },
-  { id: 'inbox', title: 'Входящие', icon: Inbox },
-  { id: 'library', title: 'Папки и теги', icon: Tags },
-  { id: 'recommendations', title: 'Подборки', icon: Sparkles },
-  { id: 'planning', title: 'Планирование', icon: Clock3 },
-  { id: 'calendar', title: 'Календарь', icon: CalendarDays },
-  { id: 'history', title: 'История', icon: History },
-  { id: 'profile', title: 'Профиль', icon: Settings },
-]
-
-const TOUR_STORAGE_KEY = 'vmestra-guided-tour-completed'
-
-function shouldShowGuidedTour() {
-  try {
-    return localStorage.getItem(TOUR_STORAGE_KEY) !== 'true'
-  } catch {
-    return true
-  }
-}
+import { SpacesScreen } from './screens/SpacesScreen'
 
 function App() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
@@ -213,11 +174,7 @@ function App() {
   }
 
   function completeGuidedTour() {
-    try {
-      localStorage.setItem(TOUR_STORAGE_KEY, 'true')
-    } catch {
-      // The tour can still close in restricted storage contexts.
-    }
+    markGuidedTourCompleted()
     setShowOnboarding(false)
   }
 
@@ -250,79 +207,14 @@ function App() {
 
   return (
     <main className="app-shell" data-theme={theme}>
-      <aside className="sidebar" aria-label="Навигация Vmestra">
-        <div className="brand">
-          <div className="brand-mark">V</div>
-          <div>
-            <strong>Vmestra</strong>
-            <span>идеи и планы внутри своих пространств</span>
-          </div>
-        </div>
-
-        <button className="quick-create" type="button" onClick={() => setActiveView('space')}>
-          <Plus size={18} />
-          Быстро добавить
-        </button>
-
-        <nav className="nav-list" data-tour-id="spaces-nav">
-          {views.map((view) => {
-            const Icon = view.icon
-            return (
-              <button
-                className={activeView === view.id ? 'active' : ''}
-                key={view.id}
-                data-tour-id={
-                  view.id === 'inbox'
-                    ? 'inbox-nav'
-                    : view.id === 'recommendations'
-                      ? 'collections-nav'
-                      : view.id === 'planning'
-                        ? 'planning-nav'
-                        : view.id === 'history'
-                          ? 'history-nav'
-                          : undefined
-                }
-                type="button"
-                onClick={() => setActiveView(view.id)}
-              >
-                <Icon size={17} />
-                {view.title}
-              </button>
-            )
-          })}
-        </nav>
-
-        <div className="sidebar-panel">
-          <span className="eyebrow">Текущее пространство</span>
-          <strong>{selectedSpaceWithLiveStats.title}</strong>
-          <p>Поиск похожих идей и рекомендации ограничены только им.</p>
-        </div>
-      </aside>
-
-      <section className="workspace">
-        <Header
-          activeView={activeView}
-          theme={theme}
-          setTheme={setTheme}
-          selectedSpace={selectedSpaceWithLiveStats}
-          setActiveView={setActiveView}
-          currentUser={currentUser}
-        />
-
-        {activeView !== 'spaces' && (
-          <section className="current-space-strip">
-            <div>
-              <span className="eyebrow">Вы внутри пространства</span>
-              <strong>{selectedSpaceWithLiveStats.title}</strong>
-              <p>{selectedSpaceWithLiveStats.description}</p>
-            </div>
-            <button className="secondary-button" type="button" onClick={() => setActiveView('spaces')}>
-              <Compass size={17} />
-              Все пространства
-            </button>
-          </section>
-        )}
-
+      <AppLayout
+        activeView={activeView}
+        currentUser={currentUser}
+        selectedSpace={selectedSpaceWithLiveStats}
+        setActiveView={setActiveView}
+        setTheme={setTheme}
+        theme={theme}
+      >
         {activeView === 'spaces' && (
           <SpacesScreen
             selectedSpaceId={selectedSpaceId}
@@ -364,7 +256,7 @@ function App() {
         {activeView === 'history' && <HistoryScreen entries={spaceHistory} />}
         {activeView === 'profile' && <ProfileScreen currentUser={currentUser} onCreateGroup={() => setActiveView('group')} />}
         {activeView === 'group' && <GroupScreen />}
-      </section>
+      </AppLayout>
 
       {showOnboarding && (
         <GuidedTour
@@ -391,319 +283,6 @@ function App() {
         />
       )}
     </main>
-  )
-}
-
-function Header({
-  activeView,
-  theme,
-  setTheme,
-  selectedSpace,
-  setActiveView,
-  currentUser,
-}: {
-  activeView: View
-  theme: 'light' | 'dark'
-  setTheme: (value: 'light' | 'dark') => void
-  selectedSpace: Space
-  setActiveView: (value: View) => void
-  currentUser: Member
-}) {
-  const title = views.find((view) => view.id === activeView)?.title ?? 'Пространство'
-
-  return (
-    <header className="topbar">
-      <div>
-        <span className="eyebrow">Front прототип MVP</span>
-        <h1>{title}</h1>
-      </div>
-
-      <div className="topbar-actions">
-        <div className="search-pill">
-          <Search size={16} />
-          <span>Поиск в «{selectedSpace.title}»</span>
-        </div>
-
-        <button
-          className="icon-button"
-          title="Переключить тему"
-          type="button"
-          onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-        >
-          {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
-        </button>
-
-        <button className="ghost-button" type="button" onClick={() => setActiveView('profile')}>
-          {currentUser.avatar}
-        </button>
-      </div>
-    </header>
-  )
-}
-
-const tourSteps: Array<{
-  id: string
-  text: string
-  view: View
-  placement: 'right' | 'bottom'
-}> = [
-  {
-    id: 'spaces-nav',
-    text: 'Сначала выбери, где живут идеи: личное, друзья, семья или отдельная группа.',
-    view: 'spaces',
-    placement: 'right',
-  },
-  {
-    id: 'space-card',
-    text: 'Идеи из разных пространств не смешиваются.',
-    view: 'spaces',
-    placement: 'right',
-  },
-  {
-    id: 'quick-add',
-    text: 'Запиши идею коротко. Разобрать по папкам можно потом.',
-    view: 'space',
-    placement: 'bottom',
-  },
-  {
-    id: 'inbox-nav',
-    text: 'Сюда попадает всё, что ещё не разобрано.',
-    view: 'inbox',
-    placement: 'right',
-  },
-  {
-    id: 'collections-nav',
-    text: 'Здесь можно быстро выбрать, чем заняться.',
-    view: 'recommendations',
-    placement: 'right',
-  },
-  {
-    id: 'planning-nav',
-    text: 'Когда решили — добавь дату, время и участников.',
-    view: 'planning',
-    placement: 'right',
-  },
-  {
-    id: 'history-nav',
-    text: 'То, что сделали, остаётся памятью пространства.',
-    view: 'history',
-    placement: 'right',
-  },
-]
-
-type TourPlacement = 'right' | 'bottom'
-
-type TourLayout = {
-  spotlight: CSSProperties
-  card: CSSProperties
-  placement: TourPlacement
-}
-
-const tourSpotlightPadding = 8
-const tourCardWidth = 340
-const tourCardEstimatedHeight = 220
-const tourGap = 18
-const tourViewportMargin = 14
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), Math.max(min, max))
-}
-
-function getTourLayout(rect: DOMRect, preferredPlacement: TourPlacement): TourLayout {
-  const viewportWidth = window.innerWidth
-  const viewportHeight = window.innerHeight
-  const target = {
-    width: Math.min(rect.width + tourSpotlightPadding * 2, viewportWidth - tourViewportMargin * 2),
-    height: Math.min(rect.height + tourSpotlightPadding * 2, viewportHeight - tourViewportMargin * 2),
-    left: 0,
-    top: 0,
-  }
-  target.left = clamp(rect.left - tourSpotlightPadding, tourViewportMargin, viewportWidth - target.width - tourViewportMargin)
-  target.top = clamp(rect.top - tourSpotlightPadding, tourViewportMargin, viewportHeight - target.height - tourViewportMargin)
-
-  if (viewportWidth <= 680) {
-    const mobileSpotlight = {
-      width: Math.min(rect.width + tourSpotlightPadding * 2, viewportWidth),
-      height: Math.min(rect.height + tourSpotlightPadding * 2, viewportHeight),
-      left: 0,
-      top: 0,
-    }
-    mobileSpotlight.left = clamp(rect.left - tourSpotlightPadding, 0, viewportWidth - mobileSpotlight.width)
-    mobileSpotlight.top = clamp(rect.top - tourSpotlightPadding, 0, viewportHeight - mobileSpotlight.height)
-
-    return {
-      spotlight: mobileSpotlight,
-      card: {
-        left: tourViewportMargin,
-        right: tourViewportMargin,
-        bottom: 18,
-        top: 'auto',
-        width: 'auto',
-      },
-      placement: 'bottom',
-    }
-  }
-
-  const canPlaceRight = target.left + target.width + tourGap + tourCardWidth <= viewportWidth - tourViewportMargin
-  const placement = preferredPlacement === 'right' && canPlaceRight ? 'right' : 'bottom'
-
-  if (placement === 'right') {
-    return {
-      spotlight: target,
-      card: {
-        left: target.left + target.width + tourGap,
-        top: clamp(target.top, tourViewportMargin, viewportHeight - tourCardEstimatedHeight - tourViewportMargin),
-      },
-      placement,
-    }
-  }
-
-  const cardTop =
-    target.top + target.height + tourGap + tourCardEstimatedHeight <= viewportHeight - tourViewportMargin
-      ? target.top + target.height + tourGap
-      : target.top - tourCardEstimatedHeight - tourGap
-
-  return {
-    spotlight: target,
-    card: {
-      left: clamp(target.left, tourViewportMargin, viewportWidth - tourCardWidth - tourViewportMargin),
-      top: clamp(cardTop, tourViewportMargin, viewportHeight - tourCardEstimatedHeight - tourViewportMargin),
-    },
-    placement,
-  }
-}
-
-function GuidedTour({
-  activeStep,
-  onBack,
-  onClose,
-  onNext,
-}: {
-  activeStep: number
-  onBack: () => void
-  onClose: () => void
-  onNext: () => void
-}) {
-  const step = tourSteps[activeStep]
-  const isLastStep = activeStep === tourSteps.length - 1
-  const [layout, setLayout] = useState<TourLayout | null>(null)
-
-  useLayoutEffect(() => {
-    let frame = 0
-
-    function updateLayout() {
-      const element = document.querySelector(`[data-tour-id="${step.id}"]`)
-      if (!element) return
-
-      const currentRect = element.getBoundingClientRect()
-      const blockPosition =
-        window.innerWidth <= 680 && currentRect.height > window.innerHeight * 0.38 ? 'start' : 'center'
-      element.scrollIntoView({ block: blockPosition, inline: 'center', behavior: 'auto' })
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        setLayout(getTourLayout(element.getBoundingClientRect(), step.placement))
-      })
-    }
-
-    updateLayout()
-    window.addEventListener('resize', updateLayout)
-    window.addEventListener('scroll', updateLayout, true)
-
-    return () => {
-      cancelAnimationFrame(frame)
-      window.removeEventListener('resize', updateLayout)
-      window.removeEventListener('scroll', updateLayout, true)
-    }
-  }, [step.id, step.placement])
-
-  const placement = layout?.placement ?? step.placement
-
-  return (
-    <div className="tour-layer">
-      <div className="tour-scrim" />
-      <div className="tour-spotlight" style={layout?.spotlight} />
-      <aside className={`tour-card tour-card-${placement}`} style={layout?.card}>
-        <span className="eyebrow">
-          Шаг {activeStep + 1} из {tourSteps.length}
-        </span>
-        <p>{step.text}</p>
-        <div className="tour-arrow" />
-        <div className="tour-actions">
-          <button className="text-button" type="button" onClick={onClose}>
-            Пропустить
-          </button>
-          <div>
-            <button className="secondary-button" disabled={activeStep === 0} type="button" onClick={onBack}>
-              Назад
-            </button>
-            <button className="primary-button" type="button" onClick={isLastStep ? onClose : onNext}>
-              {isLastStep ? 'Готово' : 'Далее'}
-              <ChevronRight size={17} />
-            </button>
-          </div>
-        </div>
-      </aside>
-    </div>
-  )
-}
-
-function SpacesScreen({
-  selectedSpaceId,
-  onSelect,
-  onCreateGroup,
-  spaces,
-}: {
-  selectedSpaceId: string
-  onSelect: (spaceId: string) => void
-  onCreateGroup: () => void
-  spaces: Space[]
-}) {
-  return (
-    <div className="screen-grid spaces-layout">
-      <section className="section-band main-band">
-        <div className="section-title">
-          <div>
-            <span className="eyebrow">Стартовый экран</span>
-            <h2>Сначала пространство, потом идеи внутри него</h2>
-          </div>
-          <button className="secondary-button" type="button" onClick={onCreateGroup}>
-            <Users size={17} />
-            Создать группу
-          </button>
-        </div>
-
-        <div className="space-list">
-          {spaces.map((space, index) => (
-            <button
-              className={`space-row ${selectedSpaceId === space.id ? 'selected' : ''}`}
-              key={space.id}
-              data-tour-id={index === 0 ? 'space-card' : undefined}
-              type="button"
-              onClick={() => onSelect(space.id)}
-            >
-              <div className="space-icon">{space.kind === 'personal' ? 'Я' : space.members.length}</div>
-              <div>
-                <strong>{space.title}</strong>
-                <p>{space.description}</p>
-              </div>
-              <div className="space-stats">
-                <span>{space.stats.ideas} идей</span>
-                <span>{space.stats.planned} в планах</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <aside className="section-band side-band">
-        <span className="eyebrow">UX-принцип</span>
-        <h2>Нет общей ленты</h2>
-        <p>
-          На этом экране видны только контейнеры. Идеи появляются после входа в конкретное пространство,
-          чтобы не нарушать изоляцию личного и группового контекста.
-        </p>
-      </aside>
-    </div>
   )
 }
 
@@ -779,47 +358,6 @@ function SpaceScreen({
           <RecommendationCards compact recommendations={recommendations} />
         </aside>
       </div>
-    </div>
-  )
-}
-
-function QuickAdd({
-  value,
-  onChange,
-  onSave,
-  isSaving,
-  notice,
-  suggestedTags,
-}: {
-  value: string
-  onChange: (value: string) => void
-  onSave: () => void
-  isSaving: boolean
-  notice: string | null
-  suggestedTags: string[]
-}) {
-  return (
-    <div className="quick-add">
-      <textarea
-        aria-label="Быстро добавить идею"
-        placeholder="Например: пересмотреть фильм у кого-нибудь дома"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      <div className="quick-add-footer">
-        <div className="tag-row">
-          {suggestedTags.map((tag) => (
-            <span className="tag" key={tag}>
-              {tag}
-            </span>
-          ))}
-        </div>
-        <button className="primary-button" type="button" disabled={isSaving || !value.trim()} onClick={onSave}>
-          {isSaving ? 'Сохраняем' : 'Сохранить'}
-          <Check size={17} />
-        </button>
-      </div>
-      {notice && <p className="form-note">{notice}</p>}
     </div>
   )
 }
@@ -908,6 +446,11 @@ function RecommendationsScreen({
   )
 }
 
+function buildPlanStartsAt(date: string, time: string) {
+  if (!date || !time) return ''
+  return new Date(`${date}T${time}:00`).toISOString()
+}
+
 function PlanningScreen({
   selectedSpace,
   plannedIdeas,
@@ -917,6 +460,16 @@ function PlanningScreen({
   plannedIdeas: Idea[]
   spaceIdeas: Idea[]
 }) {
+  const [selectedIdeaId, setSelectedIdeaId] = useState(plannedIdeas[0]?.id ?? spaceIdeas[0]?.id ?? '')
+  const [planDate, setPlanDate] = useState('2026-06-12')
+  const [planTime, setPlanTime] = useState('20:00')
+  const startsAt = buildPlanStartsAt(planDate, planTime)
+  const draftPlanPayload = {
+    ideaId: selectedIdeaId,
+    startsAt,
+    participantIds: selectedSpace.members.map((member) => member.id),
+  }
+
   return (
     <div className="screen-grid">
       <section className="section-band main-band">
@@ -930,9 +483,9 @@ function PlanningScreen({
         <div className="planning-form">
           <label>
             Идея
-            <select defaultValue={plannedIdeas[0]?.id}>
+            <select value={selectedIdeaId} onChange={(event) => setSelectedIdeaId(event.target.value)}>
               {spaceIdeas.length === 0 ? (
-                <option>Сначала сохраните идею</option>
+                <option value="">Сначала сохраните идею</option>
               ) : (
                 spaceIdeas.map((idea) => (
                   <option key={idea.id} value={idea.id}>
@@ -944,11 +497,11 @@ function PlanningScreen({
           </label>
           <label>
             Дата
-            <input defaultValue="2026-06-12" type="date" />
+            <input value={planDate} type="date" onChange={(event) => setPlanDate(event.target.value)} />
           </label>
           <label>
             Время
-            <input defaultValue="20:00" type="time" />
+            <input value={planTime} type="time" onChange={(event) => setPlanTime(event.target.value)} />
           </label>
           <div>
             <span className="field-label">Участники</span>
@@ -961,7 +514,14 @@ function PlanningScreen({
               ))}
             </div>
           </div>
-          <button className="primary-button" type="button">
+          <button
+            className="primary-button"
+            disabled={!draftPlanPayload.ideaId || !draftPlanPayload.startsAt}
+            type="button"
+            onClick={() => {
+              void draftPlanPayload
+            }}
+          >
             Добавить в планы
             <CalendarDays size={17} />
           </button>
@@ -1108,7 +668,7 @@ function Metric({
   value,
   onClick,
 }: {
-  icon: React.ElementType
+  icon: ElementType
   label: string
   value: number
   onClick: () => void

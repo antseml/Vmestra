@@ -1,5 +1,5 @@
 export const API_CONTRACT_NOTES = {
-  source: 'Back/API_DRAFT.md',
+  source: 'Backend runtime API + OpenAPI in development',
   scopeRule: 'All idea-related requests must be scoped by spaceId.',
   firstIntegrationSet: [
     'GET /api/spaces?userId={userId}',
@@ -14,6 +14,13 @@ export const API_CONTRACT_NOTES = {
     'GET /api/spaces/{spaceId}/plan?from={isoDateTime}&to={isoDateTime}',
     'GET /api/spaces/{spaceId}/history',
   ],
+  futureReadOptimizedSet: [
+    'GET /api/spaces/{spaceId}/overview',
+    'GET /api/spaces/{spaceId}/ideas-view',
+    'GET /api/spaces/{spaceId}/calendar-view',
+    'GET /api/spaces/{spaceId}/history-view',
+    'GET /api/spaces/{spaceId}/recommendations-view',
+  ],
   enumRule: 'JSON enum values are serialized and accepted as strings.',
   planningRule:
     'Moved is a user action. If backend accepts a future startsAt, the saved plan is returned as Planned. Moved/Canceled without an active future plan makes the idea Active.',
@@ -22,6 +29,10 @@ export const API_CONTRACT_NOTES = {
 } as const
 
 export const DEFAULT_DEMO_USER_ID = '11111111-1111-1111-1111-111111111111'
+
+export const FUTURE_READ_VIEW_ENDPOINTS = API_CONTRACT_NOTES.futureReadOptimizedSet
+
+export type FutureReadViewEndpoint = (typeof FUTURE_READ_VIEW_ENDPOINTS)[number]
 
 export type ApiSpaceState = 'Active' | 'Archived'
 export type ApiIdeaState = 'Inbox' | 'Active' | 'Planned' | 'Experienced' | 'Archived'
