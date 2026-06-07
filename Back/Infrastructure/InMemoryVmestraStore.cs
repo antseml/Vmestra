@@ -277,6 +277,24 @@ public sealed class InMemoryVmestraStore
         }
     }
 
+    public Tag? UpdateTag(Guid spaceId, Guid tagId, UpdateTagRequest request)
+    {
+        lock (_gate)
+        {
+            var index = _tags.FindIndex(tag => tag.SpaceId == spaceId && tag.Id == tagId);
+            if (index < 0) return null;
+
+            var current = _tags[index];
+            var updated = current with
+            {
+                Name = string.IsNullOrWhiteSpace(request.Name) ? current.Name : request.Name.Trim(),
+                Source = request.Source ?? current.Source
+            };
+            _tags[index] = updated;
+            return updated;
+        }
+    }
+
     public bool RemoveTag(Guid spaceId, Guid tagId)
     {
         lock (_gate)
@@ -307,6 +325,23 @@ public sealed class InMemoryVmestraStore
             var category = new Category(Guid.NewGuid(), spaceId, request.Name.Trim(), DateTimeOffset.UtcNow);
             _categories.Add(category);
             return category;
+        }
+    }
+
+    public Category? UpdateCategory(Guid spaceId, Guid categoryId, UpdateNamedItemRequest request)
+    {
+        lock (_gate)
+        {
+            var index = _categories.FindIndex(category => category.SpaceId == spaceId && category.Id == categoryId);
+            if (index < 0) return null;
+
+            var current = _categories[index];
+            var updated = current with
+            {
+                Name = string.IsNullOrWhiteSpace(request.Name) ? current.Name : request.Name.Trim()
+            };
+            _categories[index] = updated;
+            return updated;
         }
     }
 
@@ -374,26 +409,45 @@ public sealed class InMemoryVmestraStore
             var index = _scheduledIdeas.FindIndex(item => item.SpaceId == spaceId && item.Id == scheduledIdeaId);
             if (index < 0) return null;
 
+            var now = DateTimeOffset.UtcNow;
             var current = _scheduledIdeas[index];
+            var nextState = request.State == ScheduledIdeaState.Moved && request.StartsAt is not null && request.StartsAt.Value > now
+                ? ScheduledIdeaState.Planned
+                : request.State ?? current.State;
             var updated = current with
             {
                 StartsAt = request.StartsAt ?? current.StartsAt,
                 EndsAt = request.EndsAt ?? current.EndsAt,
                 ParticipantUserIds = request.ParticipantUserIds is null ? current.ParticipantUserIds : request.ParticipantUserIds.Distinct().ToArray(),
-                State = request.State ?? current.State,
+                State = nextState,
                 Note = request.Note ?? current.Note,
-                UpdatedAt = DateTimeOffset.UtcNow
+                UpdatedAt = now
             };
 
             _scheduledIdeas[index] = updated;
 
-            if (updated.State is ScheduledIdeaState.Canceled or ScheduledIdeaState.Moved)
+            if (updated.State is ScheduledIdeaState.Canceled)
             {
-                SetIdeaStateIfNoActiveSchedule(spaceId, updated.IdeaId, IdeaState.Active);
+                SetIdeaStateByFuturePlans(spaceId, updated.IdeaId, now);
+            }
+            else if (request.State is ScheduledIdeaState.Moved)
+            {
+                if (request.StartsAt is not null && request.StartsAt.Value > now)
+                {
+                    SetIdeaState(spaceId, updated.IdeaId, IdeaState.Planned);
+                }
+                else
+                {
+                    SetIdeaStateByFuturePlans(spaceId, updated.IdeaId, now);
+                }
             }
             else if (updated.State is ScheduledIdeaState.Experienced)
             {
                 SetIdeaState(spaceId, updated.IdeaId, IdeaState.Experienced);
+            }
+            else if (updated.State is ScheduledIdeaState.Planned && updated.StartsAt > now)
+            {
+                SetIdeaState(spaceId, updated.IdeaId, IdeaState.Planned);
             }
 
             return updated;
@@ -502,13 +556,15 @@ public sealed class InMemoryVmestraStore
         }
     }
 
-    private void SetIdeaStateIfNoActiveSchedule(Guid spaceId, Guid ideaId, IdeaState state)
+    private void SetIdeaStateByFuturePlans(Guid spaceId, Guid ideaId, DateTimeOffset now)
     {
-        var hasPlanned = _scheduledIdeas.Any(item => item.SpaceId == spaceId && item.IdeaId == ideaId && item.State == ScheduledIdeaState.Planned);
-        if (!hasPlanned)
-        {
-            SetIdeaState(spaceId, ideaId, state);
-        }
+        var hasActiveFuturePlan = _scheduledIdeas.Any(item =>
+            item.SpaceId == spaceId &&
+            item.IdeaId == ideaId &&
+            item.State == ScheduledIdeaState.Planned &&
+            item.StartsAt > now);
+
+        SetIdeaState(spaceId, ideaId, hasActiveFuturePlan ? IdeaState.Planned : IdeaState.Active);
     }
 
     private static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

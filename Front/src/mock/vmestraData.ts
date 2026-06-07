@@ -65,6 +65,8 @@ export type Folder = {
   color: string
 }
 
+const categories = ['Кино', 'Прогулка', 'Кафе', 'Вечер дома', 'Поездка', 'Места', 'Выходные']
+
 const members: Member[] = [
   { id: 'u-alex', name: 'Александра', role: 'Admin', avatar: 'А' },
   { id: 'u-masha', name: 'Маша', role: 'Member', avatar: 'М' },
@@ -272,14 +274,49 @@ export const history: HistoryEntry[] = [
 export const currentUser = members[0]
 
 export const mockApi = {
-  async getSpaces() {
+  async getSpaces(userId?: string) {
+    void userId
     return spaces
   },
   async getSpace(spaceId: string) {
     return spaces.find((space) => space.id === spaceId) ?? spaces[0]
   },
+  async getMembers(spaceId: string) {
+    return (spaces.find((space) => space.id === spaceId) ?? spaces[0]).members
+  },
   async getSpaceIdeas(spaceId: string) {
     return ideas.filter((idea) => idea.spaceId === spaceId)
+  },
+  async createIdea(spaceId: string, text: string, authorId: string) {
+    const newIdea: Idea = {
+      id: `i-${Date.now()}`,
+      spaceId,
+      title: text,
+      note: 'Сохранено быстро. Детали можно уточнить позже.',
+      folder: 'Входящие',
+      category: 'Идея',
+      tags: ['входящие', 'потом уточнить'],
+      status: 'inbox',
+      repeatable: false,
+      authorId,
+      participants: [authorId],
+    }
+    ideas.unshift(newIdea)
+    return newIdea
+  },
+  async getFolders(spaceId: string) {
+    void spaceId
+    return folders
+  },
+  async getTags(spaceId: string) {
+    return Array.from(new Set(ideas.filter((idea) => idea.spaceId === spaceId).flatMap((idea) => idea.tags)))
+  },
+  async getCategories(spaceId: string) {
+    void spaceId
+    return categories
+  },
+  async getPlan(spaceId: string) {
+    return ideas.filter((idea) => idea.spaceId === spaceId && idea.status === 'planned')
   },
   async getSpaceHistory(spaceId: string) {
     return history.filter((entry) => entry.spaceId === spaceId)

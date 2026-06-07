@@ -219,6 +219,21 @@ time {
   padding: 24px 28px 42px;
 }
 
+.loading-screen {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+}
+
+.loading-screen h1 {
+  margin: 6px 0 0;
+  letter-spacing: 0;
+}
+
 .topbar {
   justify-content: space-between;
   gap: 18px;
@@ -375,6 +390,10 @@ time {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.spacing-top {
+  margin-top: 22px;
 }
 
 .tag,

@@ -20,16 +20,16 @@ import {
   Users,
   Wand2,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+import { DEFAULT_DEMO_USER_ID } from './api/apiContract'
+import { dataClient, dataSourceLabel } from './api/dataClient'
 import {
-  currentUser,
-  folders,
-  history,
-  ideas,
-  recommendations,
-  spaces,
+  type Folder,
+  type HistoryEntry,
   type Idea,
+  type Member,
+  type Recommendation,
   type Space,
   type VisualDirection,
 } from './mock/vmestraData'
@@ -71,12 +71,75 @@ function App() {
   const [selectedSpaceId, setSelectedSpaceId] = useState('friends')
   const [showOnboarding, setShowOnboarding] = useState(true)
   const [quickIdea, setQuickIdea] = useState('')
+  const [currentUser, setCurrentUser] = useState<Member | null>(null)
+  const [spaces, setSpaces] = useState<Space[]>([])
+  const [spaceIdeas, setSpaceIdeas] = useState<Idea[]>([])
+  const [folders, setFolders] = useState<Folder[]>([])
+  const [categories, setCategories] = useState<string[]>([])
+  const [spaceHistory, setSpaceHistory] = useState<HistoryEntry[]>([])
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
   const selectedSpace = spaces.find((space) => space.id === selectedSpaceId) ?? spaces[0]
-  const spaceIdeas = ideas.filter((idea) => idea.spaceId === selectedSpace.id)
   const inboxIdeas = spaceIdeas.filter((idea) => idea.status === 'inbox')
   const plannedIdeas = spaceIdeas.filter((idea) => idea.status === 'planned')
-  const spaceHistory = history.filter((entry) => entry.spaceId === selectedSpace.id)
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadSpaces() {
+      setIsLoading(true)
+      const user = await dataClient.getCurrentUser()
+      const nextSpaces = await dataClient.getSpaces(user.id || DEFAULT_DEMO_USER_ID)
+
+      if (!isMounted) return
+
+      setCurrentUser(user)
+      setSpaces(nextSpaces)
+      if (!nextSpaces.some((space) => space.id === selectedSpaceId)) {
+        setSelectedSpaceId(nextSpaces[0]?.id ?? '')
+      }
+      setIsLoading(false)
+    }
+
+    void loadSpaces()
+
+    return () => {
+      isMounted = false
+    }
+  }, [selectedSpaceId])
+
+  useEffect(() => {
+    if (!selectedSpace?.id) return
+
+    let isMounted = true
+
+    async function loadSpaceData() {
+      const [nextIdeas, nextFolders, nextCategories, nextPlan, nextHistory, nextRecommendations] = await Promise.all([
+        dataClient.getIdeas(selectedSpace.id),
+        dataClient.getFolders(selectedSpace.id),
+        dataClient.getCategories(selectedSpace.id),
+        dataClient.getPlan(selectedSpace.id),
+        dataClient.getHistory(selectedSpace.id),
+        dataClient.getRecommendations(selectedSpace.id),
+      ])
+
+      if (!isMounted) return
+
+      const plannedIds = new Set(nextPlan.map((idea) => idea.id))
+      setSpaceIdeas(nextIdeas.map((idea) => (plannedIds.has(idea.id) ? { ...idea, status: 'planned' } : idea)))
+      setFolders(nextFolders)
+      setCategories(nextCategories)
+      setSpaceHistory(nextHistory)
+      setRecommendations(nextRecommendations)
+    }
+
+    void loadSpaceData()
+
+    return () => {
+      isMounted = false
+    }
+  }, [selectedSpace])
 
   const suggestedTags = useMemo(() => {
     const text = quickIdea.toLowerCase()
@@ -85,6 +148,25 @@ function App() {
     if (text.includes('гулять') || text.includes('прогул')) return ['вне дома', 'бесплатно']
     return ['входящие', 'потом уточнить']
   }, [quickIdea])
+
+  async function saveQuickIdea() {
+    if (!selectedSpace?.id || !quickIdea.trim()) return
+    const newIdea = await dataClient.createIdea(selectedSpace.id, { text: quickIdea.trim() })
+    setSpaceIdeas((currentIdeas) => [newIdea, ...currentIdeas])
+    setQuickIdea('')
+  }
+
+  if (isLoading || !selectedSpace || !currentUser) {
+    return (
+      <main className="app-shell" data-theme={theme} data-direction={direction}>
+        <section className="loading-screen">
+          <div className="brand-mark">V</div>
+          <h1>Загружаем пространства</h1>
+          <p>Источник данных: {dataSourceLabel}</p>
+        </section>
+      </main>
+    )
+  }
 
   return (
     <main className="app-shell" data-theme={theme} data-direction={direction}>
@@ -137,6 +219,7 @@ function App() {
           setTheme={setTheme}
           selectedSpace={selectedSpace}
           setActiveView={setActiveView}
+          currentUser={currentUser}
         />
 
         {activeView === 'spaces' && (
@@ -147,6 +230,7 @@ function App() {
               setActiveView('space')
             }}
             onCreateGroup={() => setActiveView('group')}
+            spaces={spaces}
           />
         )}
 
@@ -155,21 +239,27 @@ function App() {
             selectedSpace={selectedSpace}
             quickIdea={quickIdea}
             setQuickIdea={setQuickIdea}
+            onSaveQuickIdea={saveQuickIdea}
             suggestedTags={suggestedTags}
             inboxIdeas={inboxIdeas}
             plannedIdeas={plannedIdeas}
             spaceIdeas={spaceIdeas}
+            recommendations={recommendations}
             setActiveView={setActiveView}
           />
         )}
 
         {activeView === 'inbox' && <InboxScreen ideas={inboxIdeas} />}
-        {activeView === 'library' && <LibraryScreen ideas={spaceIdeas} />}
-        {activeView === 'recommendations' && <RecommendationsScreen selectedSpace={selectedSpace} />}
-        {activeView === 'planning' && <PlanningScreen selectedSpace={selectedSpace} plannedIdeas={plannedIdeas} />}
+        {activeView === 'library' && <LibraryScreen ideas={spaceIdeas} folders={folders} categories={categories} />}
+        {activeView === 'recommendations' && (
+          <RecommendationsScreen selectedSpace={selectedSpace} recommendations={recommendations} />
+        )}
+        {activeView === 'planning' && (
+          <PlanningScreen selectedSpace={selectedSpace} plannedIdeas={plannedIdeas} spaceIdeas={spaceIdeas} />
+        )}
         {activeView === 'calendar' && <CalendarScreen plannedIdeas={plannedIdeas} />}
         {activeView === 'history' && <HistoryScreen entries={spaceHistory} />}
-        {activeView === 'profile' && <ProfileScreen onCreateGroup={() => setActiveView('group')} />}
+        {activeView === 'profile' && <ProfileScreen currentUser={currentUser} onCreateGroup={() => setActiveView('group')} />}
         {activeView === 'group' && <GroupScreen />}
       </section>
     </main>
@@ -184,6 +274,7 @@ function Header({
   setTheme,
   selectedSpace,
   setActiveView,
+  currentUser,
 }: {
   activeView: View
   direction: VisualDirection
@@ -192,6 +283,7 @@ function Header({
   setTheme: (value: 'light' | 'dark') => void
   selectedSpace: Space
   setActiveView: (value: View) => void
+  currentUser: Member
 }) {
   const title = views.find((view) => view.id === activeView)?.title ?? 'Пространство'
 
@@ -280,10 +372,12 @@ function SpacesScreen({
   selectedSpaceId,
   onSelect,
   onCreateGroup,
+  spaces,
 }: {
   selectedSpaceId: string
   onSelect: (spaceId: string) => void
   onCreateGroup: () => void
+  spaces: Space[]
 }) {
   return (
     <div className="screen-grid spaces-layout">
@@ -337,19 +431,23 @@ function SpaceScreen({
   selectedSpace,
   quickIdea,
   setQuickIdea,
+  onSaveQuickIdea,
   suggestedTags,
   inboxIdeas,
   plannedIdeas,
   spaceIdeas,
+  recommendations,
   setActiveView,
 }: {
   selectedSpace: Space
   quickIdea: string
   setQuickIdea: (value: string) => void
+  onSaveQuickIdea: () => void
   suggestedTags: string[]
   inboxIdeas: Idea[]
   plannedIdeas: Idea[]
   spaceIdeas: Idea[]
+  recommendations: Recommendation[]
   setActiveView: (value: View) => void
 }) {
   return (
@@ -360,7 +458,7 @@ function SpaceScreen({
           <h2>{selectedSpace.title}</h2>
           <p>{selectedSpace.description}</p>
         </div>
-        <QuickAdd value={quickIdea} onChange={setQuickIdea} suggestedTags={suggestedTags} />
+        <QuickAdd value={quickIdea} onChange={setQuickIdea} onSave={onSaveQuickIdea} suggestedTags={suggestedTags} />
       </section>
 
       <section className="metrics-row">
@@ -387,7 +485,7 @@ function SpaceScreen({
         <aside className="section-band side-band">
           <span className="eyebrow">Мягкие подборки</span>
           <h2>Что можно выбрать</h2>
-          <RecommendationCards compact />
+          <RecommendationCards compact recommendations={recommendations} />
         </aside>
       </div>
     </div>
@@ -397,10 +495,12 @@ function SpaceScreen({
 function QuickAdd({
   value,
   onChange,
+  onSave,
   suggestedTags,
 }: {
   value: string
   onChange: (value: string) => void
+  onSave: () => void
   suggestedTags: string[]
 }) {
   return (
@@ -419,7 +519,7 @@ function QuickAdd({
             </span>
           ))}
         </div>
-        <button className="primary-button" type="button">
+        <button className="primary-button" type="button" onClick={onSave}>
           Сохранить
           <Check size={17} />
         </button>
@@ -443,7 +543,7 @@ function InboxScreen({ ideas }: { ideas: Idea[] }) {
   )
 }
 
-function LibraryScreen({ ideas }: { ideas: Idea[] }) {
+function LibraryScreen({ ideas, folders, categories }: { ideas: Idea[]; folders: Folder[]; categories: string[] }) {
   return (
     <div className="screen-grid">
       <section className="section-band main-band">
@@ -475,12 +575,26 @@ function LibraryScreen({ ideas }: { ideas: Idea[] }) {
             </span>
           ))}
         </div>
+        <span className="eyebrow spacing-top">Категории</span>
+        <div className="tag-cloud">
+          {categories.map((category) => (
+            <span className="tag" key={category}>
+              {category}
+            </span>
+          ))}
+        </div>
       </aside>
     </div>
   )
 }
 
-function RecommendationsScreen({ selectedSpace }: { selectedSpace: Space }) {
+function RecommendationsScreen({
+  selectedSpace,
+  recommendations,
+}: {
+  selectedSpace: Space
+  recommendations: Recommendation[]
+}) {
   return (
     <section className="section-band full-band">
       <div className="section-title">
@@ -490,12 +604,20 @@ function RecommendationsScreen({ selectedSpace }: { selectedSpace: Space }) {
         </div>
         <span className="soft-badge">простые фильтры MVP</span>
       </div>
-      <RecommendationCards />
+      <RecommendationCards recommendations={recommendations} />
     </section>
   )
 }
 
-function PlanningScreen({ selectedSpace, plannedIdeas }: { selectedSpace: Space; plannedIdeas: Idea[] }) {
+function PlanningScreen({
+  selectedSpace,
+  plannedIdeas,
+  spaceIdeas,
+}: {
+  selectedSpace: Space
+  plannedIdeas: Idea[]
+  spaceIdeas: Idea[]
+}) {
   return (
     <div className="screen-grid">
       <section className="section-band main-band">
@@ -510,13 +632,11 @@ function PlanningScreen({ selectedSpace, plannedIdeas }: { selectedSpace: Space;
           <label>
             Идея
             <select defaultValue={plannedIdeas[0]?.id}>
-              {ideas
-                .filter((idea) => idea.spaceId === selectedSpace.id)
-                .map((idea) => (
-                  <option key={idea.id} value={idea.id}>
-                    {idea.title}
-                  </option>
-                ))}
+              {spaceIdeas.map((idea) => (
+                <option key={idea.id} value={idea.id}>
+                  {idea.title}
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -574,13 +694,13 @@ function CalendarScreen({ plannedIdeas }: { plannedIdeas: Idea[] }) {
   )
 }
 
-function HistoryScreen({ entries }: { entries: typeof history }) {
+function HistoryScreen({ entries }: { entries: HistoryEntry[] }) {
   return (
     <section className="section-band full-band">
       <div className="section-title">
         <div>
           <span className="eyebrow">Память пространства</span>
-          <h2>История того, что уже сделали</h2>
+          <h2>Что уже было</h2>
         </div>
       </div>
       <div className="timeline">
@@ -599,7 +719,7 @@ function HistoryScreen({ entries }: { entries: typeof history }) {
   )
 }
 
-function ProfileScreen({ onCreateGroup }: { onCreateGroup: () => void }) {
+function ProfileScreen({ currentUser, onCreateGroup }: { currentUser: Member; onCreateGroup: () => void }) {
   return (
     <div className="screen-grid">
       <section className="section-band main-band">
@@ -690,7 +810,13 @@ function Metric({
   )
 }
 
-function RecommendationCards({ compact = false }: { compact?: boolean }) {
+function RecommendationCards({
+  compact = false,
+  recommendations,
+}: {
+  compact?: boolean
+  recommendations: Recommendation[]
+}) {
   return (
     <div className={compact ? 'recommendation-list compact' : 'recommendation-list'}>
       {recommendations.map((recommendation) => (
@@ -736,7 +862,9 @@ function IdeaList({ ideas, inboxMode = false }: { ideas: Idea[]; inboxMode?: boo
             </div>
           </div>
           <div className="idea-side">
-            <span className="status-pill">{idea.status === 'planned' ? 'В планах' : inboxMode ? 'Уточнить' : idea.category}</span>
+            <span className="status-pill">
+              {idea.status === 'planned' ? 'Запланировано' : inboxMode ? 'Уточнить' : idea.category}
+            </span>
             {idea.similarIdeaIds && <span className="similar-note">есть похожая внутри пространства</span>}
           </div>
         </article>

@@ -73,6 +73,8 @@ public static class VmestraEndpoints
         tags.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) => Results.Ok(store.GetTags(spaceId)));
         tags.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, CreateTagRequest request) =>
             IsBlank(request.Name) ? Results.BadRequest("Tag name is required.") : FoundOrCreated($"/api/spaces/{spaceId}/tags", store.CreateTag(spaceId, request)));
+        tags.MapPatch("/{tagId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid tagId, UpdateTagRequest request) =>
+            FoundOrNotFound(store.UpdateTag(spaceId, tagId, request)));
         tags.MapDelete("/{tagId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid tagId) =>
             store.RemoveTag(spaceId, tagId) ? Results.NoContent() : Results.NotFound());
 
@@ -80,6 +82,8 @@ public static class VmestraEndpoints
         categories.MapGet("/", (InMemoryVmestraStore store, Guid spaceId) => Results.Ok(store.GetCategories(spaceId)));
         categories.MapPost("/", (InMemoryVmestraStore store, Guid spaceId, CreateNamedItemRequest request) =>
             IsBlank(request.Name) ? Results.BadRequest("Category name is required.") : FoundOrCreated($"/api/spaces/{spaceId}/categories", store.CreateCategory(spaceId, request)));
+        categories.MapPatch("/{categoryId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid categoryId, UpdateNamedItemRequest request) =>
+            FoundOrNotFound(store.UpdateCategory(spaceId, categoryId, request)));
         categories.MapDelete("/{categoryId:guid}", (InMemoryVmestraStore store, Guid spaceId, Guid categoryId) =>
             store.RemoveCategory(spaceId, categoryId) ? Results.NoContent() : Results.NotFound());
 

@@ -46,6 +46,10 @@ public sealed record CreateTagRequest(
     string Name,
     TagSource Source = TagSource.User);
 
+public sealed record UpdateTagRequest(
+    string? Name,
+    TagSource? Source);
+
 public sealed record UpdateNamedItemRequest(string? Name);
 
 public sealed record ScheduleIdeaRequest(
