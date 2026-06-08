@@ -222,7 +222,7 @@ public sealed class ClassificationService(SpaceService spaces, IClassificationRe
     }
 }
 
-public sealed class PlanningService(SpaceService spaces, IPlanningRepository planning)
+public sealed class PlanningService(SpaceService spaces, IIdeaRepository ideas, IPlanningRepository planning)
 {
     public AppResult<IReadOnlyCollection<ScheduledIdeaResponse>> GetSchedule(Guid currentUserId, Guid spaceId, DateTimeOffset? from, DateTimeOffset? to)
     {
@@ -233,15 +233,31 @@ public sealed class PlanningService(SpaceService spaces, IPlanningRepository pla
     public AppResult<ScheduledIdeaResponse> ScheduleIdea(Guid currentUserId, Guid spaceId, Guid ideaId, ScheduleIdeaRequest request)
     {
         if (!spaces.IsMember(spaceId, currentUserId)) return AppResult<ScheduledIdeaResponse>.NotFound();
+        if (ideas.GetIdea(spaceId, ideaId) is null) return AppResult<ScheduledIdeaResponse>.NotFound();
         if (request.StartsAt == default) return AppResult<ScheduledIdeaResponse>.Validation("Plan startsAt is required.");
-        return planning.ScheduleIdea(spaceId, ideaId, request, currentUserId) is { } item ? AppResult<ScheduledIdeaResponse>.Ok(item.ToResponse()) : AppResult<ScheduledIdeaResponse>.NotFound();
+        var participantIds = NormalizeParticipantIds(request.ParticipantUserIds, currentUserId);
+        if (!ValidateParticipants(spaceId, participantIds)) return AppResult<ScheduledIdeaResponse>.Validation("Plan participants must be members of the same space.");
+        var normalizedRequest = request with { CreatedByUserId = currentUserId, ParticipantUserIds = participantIds };
+        return planning.ScheduleIdea(spaceId, ideaId, normalizedRequest, currentUserId) is { } item ? AppResult<ScheduledIdeaResponse>.Ok(item.ToResponse()) : AppResult<ScheduledIdeaResponse>.NotFound();
     }
 
     public AppResult<ScheduledIdeaResponse> UpdateSchedule(Guid currentUserId, Guid spaceId, Guid scheduledIdeaId, UpdateScheduledIdeaRequest request)
     {
         if (!spaces.IsMember(spaceId, currentUserId)) return AppResult<ScheduledIdeaResponse>.NotFound();
-        return planning.UpdateSchedule(spaceId, scheduledIdeaId, request) is { } item ? AppResult<ScheduledIdeaResponse>.Ok(item.ToResponse()) : AppResult<ScheduledIdeaResponse>.NotFound();
+        if (request.State is ScheduledIdeaState.Moved && request.StartsAt is null) return AppResult<ScheduledIdeaResponse>.Validation("Plan startsAt is required when moving a plan.");
+        var participantIds = request.ParticipantUserIds is null ? null : NormalizeParticipantIds(request.ParticipantUserIds, currentUserId);
+        if (participantIds is not null && !ValidateParticipants(spaceId, participantIds)) return AppResult<ScheduledIdeaResponse>.Validation("Plan participants must be members of the same space.");
+        var normalizedRequest = request with { ParticipantUserIds = participantIds };
+        return planning.UpdateSchedule(spaceId, scheduledIdeaId, normalizedRequest, currentUserId) is { } item ? AppResult<ScheduledIdeaResponse>.Ok(item.ToResponse()) : AppResult<ScheduledIdeaResponse>.NotFound();
     }
+
+    private Guid[] NormalizeParticipantIds(IReadOnlyCollection<Guid>? participantUserIds, Guid currentUserId)
+    {
+        var participantIds = participantUserIds?.Where(userId => userId != Guid.Empty).Distinct().ToArray();
+        return participantIds is { Length: > 0 } ? participantIds : [currentUserId];
+    }
+
+    private bool ValidateParticipants(Guid spaceId, IReadOnlyCollection<Guid> participantUserIds) => participantUserIds.All(userId => spaces.IsMember(spaceId, userId));
 }
 
 public sealed class HistoryService(SpaceService spaces, IHistoryRepository history, IIdeaRepository ideas)

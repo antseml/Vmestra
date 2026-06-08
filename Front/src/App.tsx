@@ -8,7 +8,7 @@ import {
   Users,
   Wand2,
 } from 'lucide-react'
-import { useEffect, useState, type ElementType, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ElementType, type FormEvent } from 'react'
 import './App.css'
 import { AuthApiError, AuthRequiredError, authClient, setUnauthorizedHandler, type AuthUser } from './api/authClient'
 import { ApiRequestError } from './api/backendClient'
@@ -19,6 +19,7 @@ import { QuickAdd } from './components/QuickAdd'
 import { GuidedTour } from './features/guidedTour/GuidedTour'
 import { markGuidedTourCompleted, shouldShowGuidedTour, tourSteps } from './features/guidedTour/guidedTourModel'
 import {
+  type Comment,
   type Folder,
   type HistoryEntry,
   type Idea,
@@ -33,6 +34,17 @@ type IdeaActions = {
   onEdit: (idea: Idea, draft: { title: string; note: string; folderName: string; categoryName: string; tagNames: string[] }) => void
   onRestore: (idea: Idea) => void
   onSortOut: (idea: Idea) => void
+}
+
+type PlanActions = {
+  onCancel: (idea: Idea) => void
+  onComplete: (idea: Idea) => void
+  onMove: (idea: Idea, startsAt: string, participantUserIds: string[], note?: string) => void
+}
+
+type CommentActions = {
+  onAddComment: (idea: Idea, text: string) => void
+  onOpenComments: (idea: Idea) => void
 }
 
 function getApiErrorMessage(error: unknown, fallback: string) {
@@ -63,6 +75,8 @@ function App() {
   const [planningNotice, setPlanningNotice] = useState<string | null>(null)
   const [dictionaryNotice, setDictionaryNotice] = useState<string | null>(null)
   const [groupNotice, setGroupNotice] = useState<string | null>(null)
+  const [commentsByIdeaId, setCommentsByIdeaId] = useState<Record<string, Comment[]>>({})
+  const [commentNotice, setCommentNotice] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState(0)
   const [authRequired, setAuthRequired] = useState(isBackendDataSource && !authClient.hasToken())
 
@@ -135,6 +149,7 @@ function App() {
       setCategories([])
       setTags([])
       setSpaceHistory([])
+      setCommentsByIdeaId({})
       setRecommendations([])
     })
 
@@ -168,6 +183,7 @@ function App() {
         setTags(nextTags)
         setCategories(nextCategories)
         setSpaceHistory(nextHistory)
+        setCommentsByIdeaId({})
         setRecommendations(nextRecommendations)
       } catch (error) {
         if (!isMounted) return
@@ -182,6 +198,7 @@ function App() {
           setTags([])
           setCategories([])
           setSpaceHistory([])
+          setCommentsByIdeaId({})
           setRecommendations([])
           return
         }
@@ -225,6 +242,7 @@ function App() {
             : space,
         ),
       )
+      await refreshHistory(selectedSpace.id)
       setQuickIdea('')
       setQuickAddNotice('Идея сохранена во входящие.')
     } catch {
@@ -242,12 +260,18 @@ function App() {
     )
   }
 
+  async function refreshHistory(spaceId = selectedSpace?.id) {
+    if (!spaceId) return
+    setSpaceHistory(await dataClient.getHistory(spaceId))
+  }
+
   async function sortOutIdea(idea: Idea) {
     if (!selectedSpace?.id) return
     setIdeaActionNotice(null)
 
     try {
       replaceIdea(await dataClient.updateIdea(selectedSpace.id, idea.id, { state: 'Active' }))
+      await refreshHistory(selectedSpace.id)
       setIdeaActionNotice('Идея перемещена из входящих в копилку.')
     } catch (error) {
       if (error instanceof AuthRequiredError) {
@@ -282,6 +306,7 @@ function App() {
           tagNames: draft.tagNames,
         }),
       )
+      await refreshHistory(selectedSpace.id)
       setIdeaActionNotice('Идея обновлена.')
     } catch (error) {
       if (error instanceof AuthRequiredError) {
@@ -298,6 +323,7 @@ function App() {
 
     try {
       replaceIdea(await dataClient.archiveIdea(selectedSpace.id, idea.id))
+      await refreshHistory(selectedSpace.id)
       setIdeaActionNotice('Идея отправлена в архив.')
     } catch (error) {
       if (error instanceof AuthRequiredError) {
@@ -314,6 +340,7 @@ function App() {
 
     try {
       replaceIdea(await dataClient.restoreIdea(selectedSpace.id, idea.id))
+      await refreshHistory(selectedSpace.id)
       setIdeaActionNotice('Идея вернулась в копилку.')
     } catch (error) {
       if (error instanceof AuthRequiredError) {
@@ -335,6 +362,7 @@ function App() {
         note: note?.trim() || null,
       })
       replaceIdea(plannedIdea)
+      await refreshHistory(selectedSpace.id)
       setPlanningNotice('Идея добавлена в планы.')
     } catch (error) {
       if (error instanceof AuthRequiredError) {
@@ -342,6 +370,100 @@ function App() {
         return
       }
       setPlanningNotice(getApiErrorMessage(error, 'Не удалось добавить идею в планы.'))
+    }
+  }
+
+  async function movePlan(idea: Idea, startsAt: string, participantUserIds: string[], note?: string) {
+    if (!selectedSpace?.id || !idea.planId) return
+    setPlanningNotice(null)
+
+    try {
+      const movedIdea = await dataClient.updatePlan(selectedSpace.id, idea.planId, {
+        startsAt,
+        participantUserIds,
+        state: 'Moved',
+        note: note?.trim() || null,
+      })
+      replaceIdea(movedIdea)
+      await refreshHistory(selectedSpace.id)
+      setPlanningNotice('\u041f\u043b\u0430\u043d \u043f\u0435\u0440\u0435\u043d\u0435\u0441\u0451\u043d.')
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        setAuthRequired(true)
+        return
+      }
+      setPlanningNotice(getApiErrorMessage(error, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u0435\u0440\u0435\u043d\u0435\u0441\u0442\u0438 \u043f\u043b\u0430\u043d.'))
+    }
+  }
+
+  async function cancelPlan(idea: Idea) {
+    if (!selectedSpace?.id || !idea.planId) return
+    setPlanningNotice(null)
+
+    try {
+      const updatedIdea = await dataClient.updatePlan(selectedSpace.id, idea.planId, { state: 'Canceled' })
+      replaceIdea(updatedIdea)
+      await refreshHistory(selectedSpace.id)
+      setPlanningNotice('\u041f\u043b\u0430\u043d \u043e\u0442\u043c\u0435\u043d\u0451\u043d.')
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        setAuthRequired(true)
+        return
+      }
+      setPlanningNotice(getApiErrorMessage(error, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0442\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u043b\u0430\u043d.'))
+    }
+  }
+
+  async function completePlan(idea: Idea) {
+    if (!selectedSpace?.id || !idea.planId) return
+    setPlanningNotice(null)
+
+    try {
+      const updatedIdea = await dataClient.updatePlan(selectedSpace.id, idea.planId, { state: 'Experienced' })
+      replaceIdea(updatedIdea)
+      await refreshHistory(selectedSpace.id)
+      setPlanningNotice('\u041e\u0442\u043c\u0435\u0447\u0435\u043d\u043e \u0432 \u0438\u0441\u0442\u043e\u0440\u0438\u0438.')
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        setAuthRequired(true)
+        return
+      }
+      setPlanningNotice(getApiErrorMessage(error, '\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043e\u0442\u043c\u0435\u0442\u0438\u0442\u044c \u043a\u0430\u043a \u0441\u043e\u0441\u0442\u043e\u044f\u0432\u0448\u0435\u0435\u0441\u044f.'))
+    }
+  }
+
+  async function openComments(idea: Idea) {
+    if (!selectedSpace?.id) return
+    setCommentNotice(null)
+
+    try {
+      const comments = await dataClient.getComments(selectedSpace.id, idea.id)
+      setCommentsByIdeaId((currentComments) => ({ ...currentComments, [idea.id]: comments }))
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        setAuthRequired(true)
+        return
+      }
+      setCommentNotice(getApiErrorMessage(error, 'Не удалось загрузить комментарии.'))
+    }
+  }
+
+  async function addComment(idea: Idea, text: string) {
+    if (!selectedSpace?.id || !text.trim()) return
+    setCommentNotice(null)
+
+    try {
+      const comment = await dataClient.addComment(selectedSpace.id, idea.id, { text: text.trim() })
+      setCommentsByIdeaId((currentComments) => ({
+        ...currentComments,
+        [idea.id]: [...(currentComments[idea.id] ?? []), comment],
+      }))
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        setAuthRequired(true)
+        return
+      }
+      setCommentNotice(getApiErrorMessage(error, 'Не удалось добавить комментарий.'))
     }
   }
 
@@ -404,6 +526,17 @@ function App() {
     onEdit: saveIdeaEdit,
     onRestore: restoreIdea,
     onSortOut: sortOutIdea,
+  }
+
+  const planActions: PlanActions = {
+    onCancel: cancelPlan,
+    onComplete: completePlan,
+    onMove: movePlan,
+  }
+
+  const commentActions: CommentActions = {
+    onAddComment: addComment,
+    onOpenComments: openComments,
   }
 
   function completeGuidedTour() {
@@ -520,6 +653,10 @@ function App() {
             spaceIdeas={spaceIdeas}
             ideaActions={ideaActions}
             ideaActionNotice={ideaActionNotice}
+            commentActions={commentActions}
+            commentNotice={commentNotice}
+            commentsByIdeaId={commentsByIdeaId}
+            planActions={planActions}
             recommendations={recommendations}
             setActiveView={setActiveView}
             tags={tags}
@@ -533,6 +670,10 @@ function App() {
             ideas={inboxIdeas}
             ideaActions={ideaActions}
             ideaActionNotice={ideaActionNotice}
+            commentActions={commentActions}
+            commentNotice={commentNotice}
+            commentsByIdeaId={commentsByIdeaId}
+            planActions={planActions}
             tags={tags}
           />
         )}
@@ -544,6 +685,10 @@ function App() {
             ideaActions={ideaActions}
             ideaActionNotice={ideaActionNotice}
             ideas={activeLibraryIdeas}
+            commentActions={commentActions}
+            commentNotice={commentNotice}
+            commentsByIdeaId={commentsByIdeaId}
+            planActions={planActions}
             onCreateDictionaryItem={createDictionaryItem}
             tags={tags}
             dictionaryNotice={dictionaryNotice}
@@ -555,7 +700,11 @@ function App() {
         {activeView === 'planning' && (
           <PlanningScreen
             ideaActions={ideaActions}
+            commentActions={commentActions}
+            commentNotice={commentNotice}
+            commentsByIdeaId={commentsByIdeaId}
             onScheduleIdea={scheduleIdea}
+            planActions={planActions}
             planningNotice={planningNotice}
             plannedIdeas={plannedIdeas}
             selectedSpace={selectedSpaceWithLiveStats}
@@ -729,6 +878,10 @@ function SpaceScreen({
   spaceIdeas,
   ideaActions,
   ideaActionNotice,
+  commentActions,
+  commentNotice,
+  commentsByIdeaId,
+  planActions,
   recommendations,
   setActiveView,
   tags,
@@ -747,6 +900,10 @@ function SpaceScreen({
   spaceIdeas: Idea[]
   ideaActions: IdeaActions
   ideaActionNotice: string | null
+  commentActions: CommentActions
+  commentNotice: string | null
+  commentsByIdeaId: Record<string, Comment[]>
+  planActions: PlanActions
   recommendations: Recommendation[]
   setActiveView: (value: View) => void
   tags: string[]
@@ -791,7 +948,17 @@ function SpaceScreen({
             </button>
           </div>
           {ideaActionNotice && <p className="form-note">{ideaActionNotice}</p>}
-          <IdeaList actions={ideaActions} categories={categories} folders={folders} ideas={recentIdeas} tags={tags} />
+          <IdeaList
+            actions={ideaActions}
+            categories={categories}
+            commentActions={commentActions}
+            commentNotice={commentNotice}
+            commentsByIdeaId={commentsByIdeaId}
+            folders={folders}
+            ideas={recentIdeas}
+            planActions={planActions}
+            tags={tags}
+          />
         </section>
 
         <aside className="section-band side-band">
@@ -810,6 +977,10 @@ function InboxScreen({
   ideas,
   ideaActions,
   ideaActionNotice,
+  commentActions,
+  commentNotice,
+  commentsByIdeaId,
+  planActions,
   tags,
 }: {
   categories: string[]
@@ -817,6 +988,10 @@ function InboxScreen({
   ideas: Idea[]
   ideaActions: IdeaActions
   ideaActionNotice: string | null
+  commentActions: CommentActions
+  commentNotice: string | null
+  commentsByIdeaId: Record<string, Comment[]>
+  planActions: PlanActions
   tags: string[]
 }) {
   return (
@@ -832,9 +1007,13 @@ function InboxScreen({
       <IdeaList
         actions={ideaActions}
         categories={categories}
+        commentActions={commentActions}
+        commentNotice={commentNotice}
+        commentsByIdeaId={commentsByIdeaId}
         folders={folders}
         emptyText="Во входящих пока тихо. Новые быстрые идеи будут появляться здесь."
         ideas={ideas}
+        planActions={planActions}
         tags={tags}
         inboxMode
       />
@@ -850,7 +1029,11 @@ function LibraryScreen({
   ideaActions,
   ideaActionNotice,
   ideas,
+  commentActions,
+  commentNotice,
+  commentsByIdeaId,
   onCreateDictionaryItem,
+  planActions,
   tags,
 }: {
   archivedIdeas: Idea[]
@@ -860,7 +1043,11 @@ function LibraryScreen({
   ideaActions: IdeaActions
   ideaActionNotice: string | null
   ideas: Idea[]
+  commentActions: CommentActions
+  commentNotice: string | null
+  commentsByIdeaId: Record<string, Comment[]>
   onCreateDictionaryItem: (kind: 'folder' | 'tag' | 'category', name: string) => void
+  planActions: PlanActions
   tags: string[]
 }) {
   const [showArchived, setShowArchived] = useState(false)
@@ -972,7 +1159,17 @@ function LibraryScreen({
           </button>
         </div>
         {ideaActionNotice && <p className="form-note">{ideaActionNotice}</p>}
-        <IdeaList actions={ideaActions} categories={categories} folders={folders} ideas={visibleIdeas} tags={tags} />
+        <IdeaList
+          actions={ideaActions}
+          categories={categories}
+          commentActions={commentActions}
+          commentNotice={commentNotice}
+          commentsByIdeaId={commentsByIdeaId}
+          folders={folders}
+          ideas={visibleIdeas}
+          planActions={planActions}
+          tags={tags}
+        />
       </section>
 
       <aside className="section-band side-band">
@@ -1028,14 +1225,22 @@ function buildPlanStartsAt(date: string, time: string) {
 
 function PlanningScreen({
   ideaActions,
+  commentActions,
+  commentNotice,
+  commentsByIdeaId,
   onScheduleIdea,
+  planActions,
   planningNotice,
   selectedSpace,
   plannedIdeas,
   spaceIdeas,
 }: {
   ideaActions: IdeaActions
+  commentActions: CommentActions
+  commentNotice: string | null
+  commentsByIdeaId: Record<string, Comment[]>
   onScheduleIdea: (ideaId: string, startsAt: string, participantUserIds: string[], note?: string) => void
+  planActions: PlanActions
   planningNotice: string | null
   selectedSpace: Space
   plannedIdeas: Idea[]
@@ -1143,9 +1348,13 @@ function PlanningScreen({
         <IdeaList
           actions={ideaActions}
           categories={[]}
+          commentActions={commentActions}
+          commentNotice={commentNotice}
+          commentsByIdeaId={commentsByIdeaId}
           emptyText="Пока ничего не запланировано. Идеи всё равно остаются доступными в копилке."
           folders={[]}
           ideas={plannedIdeas}
+          planActions={planActions}
           tags={[]}
         />
       </aside>
@@ -1366,23 +1575,39 @@ function RecommendationCards({
 function IdeaList({
   actions,
   categories,
+  commentActions,
+  commentNotice,
+  commentsByIdeaId,
   folders,
   ideas,
   inboxMode = false,
   emptyText,
+  planActions,
   tags,
 }: {
   actions?: IdeaActions
   categories: string[]
+  commentActions?: CommentActions
+  commentNotice?: string | null
+  commentsByIdeaId?: Record<string, Comment[]>
   folders: Folder[]
   ideas: Idea[]
   inboxMode?: boolean
   emptyText?: string
+  planActions?: PlanActions
   tags: string[]
 }) {
   const [editingIdeaId, setEditingIdeaId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState({ title: '', note: '', folderName: '', categoryName: '', tagNames: [] as string[] })
   const [editTagInput, setEditTagInput] = useState('')
+  const [openCommentsIdeaId, setOpenCommentsIdeaId] = useState<string | null>(null)
+  const [commentDraft, setCommentDraft] = useState('')
+  const [movingPlanIdeaId, setMovingPlanIdeaId] = useState<string | null>(null)
+  const [moveDate, setMoveDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [moveTime, setMoveTime] = useState('20:00')
+  const [moveNote, setMoveNote] = useState('')
+  const moveDateInputRef = useRef<HTMLInputElement>(null)
+  const moveTimeInputRef = useRef<HTMLInputElement>(null)
 
   function startEditing(idea: Idea) {
     setEditingIdeaId(idea.id)
@@ -1410,6 +1635,35 @@ function IdeaList({
 
   function removeDraftTag(tagName: string) {
     setEditDraft((draft) => ({ ...draft, tagNames: draft.tagNames.filter((tag) => tag !== tagName) }))
+  }
+
+  function openComments(idea: Idea) {
+    const nextOpenIdeaId = openCommentsIdeaId === idea.id ? null : idea.id
+    setOpenCommentsIdeaId(nextOpenIdeaId)
+    if (nextOpenIdeaId) commentActions?.onOpenComments(idea)
+  }
+
+  function submitComment(idea: Idea) {
+    if (!commentDraft.trim()) return
+    commentActions?.onAddComment(idea, commentDraft)
+    setCommentDraft('')
+  }
+
+  function startMovingPlan(idea: Idea) {
+    setMovingPlanIdeaId(idea.id)
+    const plannedAt = idea.plannedFor ? new Date(idea.plannedFor) : new Date()
+    setMoveDate(plannedAt.toISOString().slice(0, 10))
+    setMoveTime(plannedAt.toTimeString().slice(0, 5))
+    setMoveNote('')
+  }
+
+  function submitMovePlan(idea: Idea) {
+    const actualDate = moveDateInputRef.current?.value ?? moveDate
+    const actualTime = moveTimeInputRef.current?.value ?? moveTime
+    const startsAt = buildPlanStartsAt(actualDate, actualTime)
+    if (!startsAt) return
+    planActions?.onMove(idea, startsAt, idea.participants, moveNote)
+    setMovingPlanIdeaId(null)
   }
 
   return (
@@ -1563,6 +1817,84 @@ function IdeaList({
                 </div>
               )}
             </div>
+            {idea.status === 'planned' && idea.planId && planActions && (
+              <div className="plan-card-actions">
+                <div>
+                  <strong>{idea.plannedFor ? new Date(idea.plannedFor).toLocaleString('ru-RU') : 'Запланировано'}</strong>
+                  <span>{idea.participants.length} участн.</span>
+                </div>
+                {movingPlanIdeaId === idea.id ? (
+                  <div className="plan-move-form">
+                    <input
+                      ref={moveDateInputRef}
+                      aria-label="Дата переноса"
+                      value={moveDate}
+                      type="date"
+                      onChange={(event) => setMoveDate(event.target.value)}
+                    />
+                    <input
+                      ref={moveTimeInputRef}
+                      aria-label="Время переноса"
+                      value={moveTime}
+                      type="time"
+                      onChange={(event) => setMoveTime(event.target.value)}
+                    />
+                    <input value={moveNote} placeholder="Причина или заметка" onChange={(event) => setMoveNote(event.target.value)} />
+                    <button className="secondary-button" type="button" onClick={() => submitMovePlan(idea)}>
+                      Сохранить перенос
+                    </button>
+                    <button className="text-button" type="button" onClick={() => setMovingPlanIdeaId(null)}>
+                      Отмена
+                    </button>
+                  </div>
+                ) : (
+                  <div className="idea-actions">
+                    <button className="text-button" type="button" onClick={() => startMovingPlan(idea)}>
+                      Перенести
+                    </button>
+                    <button className="text-button" type="button" onClick={() => planActions.onCancel(idea)}>
+                      Отменить
+                    </button>
+                    <button className="text-button" type="button" onClick={() => planActions.onComplete(idea)}>
+                      Состоялось
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {commentActions && (
+              <div className="comments-panel">
+                <button className="text-button" type="button" onClick={() => openComments(idea)}>
+                  {openCommentsIdeaId === idea.id ? 'Скрыть комментарии' : 'Комментарии'}
+                </button>
+                {openCommentsIdeaId === idea.id && (
+                  <div className="comments-box">
+                    {(commentsByIdeaId?.[idea.id] ?? []).length === 0 ? (
+                      <EmptyState text="Комментариев пока нет." compact />
+                    ) : (
+                      (commentsByIdeaId?.[idea.id] ?? []).map((comment) => (
+                        <div className="comment-row" key={comment.id}>
+                          <span>{new Date(comment.createdAt).toLocaleString('ru-RU')}</span>
+                          <p>{comment.text}</p>
+                        </div>
+                      ))
+                    )}
+                    {commentNotice && <p className="form-note">{commentNotice}</p>}
+                    <div className="inline-control">
+                      <input
+                        aria-label="Добавить комментарий"
+                        value={commentDraft}
+                        placeholder="Добавить комментарий"
+                        onChange={(event) => setCommentDraft(event.target.value)}
+                      />
+                      <button className="secondary-button" type="button" onClick={() => submitComment(idea)}>
+                        Отправить
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </article>
         ))
       )}

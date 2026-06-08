@@ -27,6 +27,7 @@ export type Space = {
 export type Idea = {
   id: string
   spaceId: string
+  planId?: string
   title: string
   note: string
   folder: string
@@ -38,6 +39,15 @@ export type Idea = {
   plannedFor?: string
   participants: string[]
   similarIdeaIds?: string[]
+}
+
+export type Comment = {
+  id: string
+  spaceId: string
+  ideaId: string
+  authorId: string
+  text: string
+  createdAt: string
 }
 
 export type Recommendation = {
@@ -66,6 +76,7 @@ export type Folder = {
 
 const categories = ['Кино', 'Прогулка', 'Кафе', 'Вечер дома', 'Поездка', 'Места', 'Выходные']
 const customTags: string[] = []
+const comments: Comment[] = []
 
 const members: Member[] = [
   { id: 'u-alex', name: 'Александра', role: 'Admin', avatar: 'А' },
@@ -123,6 +134,7 @@ export const ideas: Idea[] = [
     status: 'planned',
     repeatable: false,
     authorId: 'u-alex',
+    planId: 'plan-i-1',
     plannedFor: '2026-06-12T20:00:00',
     participants: ['u-alex', 'u-masha', 'u-dima'],
     similarIdeaIds: ['i-8'],
@@ -203,6 +215,7 @@ export const ideas: Idea[] = [
     status: 'planned',
     repeatable: true,
     authorId: 'u-alex',
+    planId: 'plan-i-7',
     plannedFor: '2026-06-14T11:00:00',
     participants: ['u-alex', 'u-masha'],
   },
@@ -391,12 +404,38 @@ export const mockApi = {
     const idea = await this.updateIdea(spaceId, ideaId, { state: 'Planned' })
     const updatedIdea = {
       ...idea,
+      planId: `plan-${ideaId}`,
       plannedFor: request.startsAt,
       participants: request.participantUserIds?.length ? request.participantUserIds : idea.participants,
     }
     const index = ideas.findIndex((item) => item.id === ideaId && item.spaceId === spaceId)
     if (index >= 0) ideas[index] = updatedIdea
+    history.unshift({
+      id: `h-${Date.now()}`,
+      spaceId,
+      title: 'Идея запланирована',
+      date: request.startsAt.slice(0, 10),
+      note: request.note ?? '',
+    })
     return updatedIdea
+  },
+  async updatePlan(
+    spaceId: string,
+    scheduledIdeaId: string,
+    request: { startsAt?: string; participantUserIds?: string[]; state?: 'Planned' | 'Moved' | 'Canceled' | 'Experienced'; note?: string | null },
+  ) {
+    const idea = ideas.find((item) => item.spaceId === spaceId && item.planId === scheduledIdeaId)
+    if (!idea) throw new Error('Plan not found')
+    const nextIdea: Idea = {
+      ...idea,
+      plannedFor: request.startsAt ?? idea.plannedFor,
+      participants: request.participantUserIds?.length ? request.participantUserIds : idea.participants,
+      status: request.state === 'Canceled' ? 'saved' : request.state === 'Experienced' ? 'memory' : 'planned',
+      planId: request.state === 'Canceled' || request.state === 'Experienced' ? undefined : idea.planId,
+    }
+    const index = ideas.findIndex((item) => item.id === idea.id)
+    if (index >= 0) ideas[index] = nextIdea
+    return nextIdea
   },
   async getFolders(spaceId: string) {
     const spaceIdeas = ideas.filter((idea) => idea.spaceId === spaceId && idea.status !== 'archived')
@@ -438,6 +477,39 @@ export const mockApi = {
   },
   async getSpaceHistory(spaceId: string) {
     return history.filter((entry) => entry.spaceId === spaceId)
+  },
+  async createHistoryEntry(
+    spaceId: string,
+    request: { ideaId?: string | null; title: string; publicNote?: string | null; happenedAt?: string | null },
+  ) {
+    const entry: HistoryEntry = {
+      id: `h-${Date.now()}`,
+      spaceId,
+      title: request.title,
+      date: (request.happenedAt ?? new Date().toISOString()).slice(0, 10),
+      note: request.publicNote ?? '',
+    }
+    history.unshift(entry)
+    if (request.ideaId) {
+      const idea = ideas.find((item) => item.id === request.ideaId && item.spaceId === spaceId)
+      if (idea) idea.status = 'memory'
+    }
+    return entry
+  },
+  async getComments(spaceId: string, ideaId: string) {
+    return comments.filter((comment) => comment.spaceId === spaceId && comment.ideaId === ideaId)
+  },
+  async addComment(spaceId: string, ideaId: string, request: { text: string }) {
+    const comment: Comment = {
+      id: `c-${Date.now()}`,
+      spaceId,
+      ideaId,
+      authorId: currentUser.id,
+      text: request.text,
+      createdAt: new Date().toISOString(),
+    }
+    comments.push(comment)
+    return comment
   },
   async getRecommendations(spaceId: string) {
     const spaceIdeaIds = new Set(ideas.filter((idea) => idea.spaceId === spaceId).map((idea) => idea.id))

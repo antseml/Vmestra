@@ -58,7 +58,7 @@ public interface IPlanningRepository
 {
     IReadOnlyCollection<ScheduledIdea> GetSchedule(Guid spaceId, DateTimeOffset? from, DateTimeOffset? to);
     ScheduledIdea? ScheduleIdea(Guid spaceId, Guid ideaId, ScheduleIdeaRequest request, Guid createdByUserId);
-    ScheduledIdea? UpdateSchedule(Guid spaceId, Guid scheduledIdeaId, UpdateScheduledIdeaRequest request);
+    ScheduledIdea? UpdateSchedule(Guid spaceId, Guid scheduledIdeaId, UpdateScheduledIdeaRequest request, Guid updatedByUserId);
     bool HasActiveFuturePlan(Guid spaceId, Guid ideaId, DateTimeOffset now);
 }
 

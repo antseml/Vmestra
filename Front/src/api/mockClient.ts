@@ -29,6 +29,9 @@ export const mockClient: DataClient = {
   async scheduleIdea(spaceId: string, ideaId: string, request) {
     return mockApi.scheduleIdea(spaceId, ideaId, request)
   },
+  async updatePlan(spaceId: string, scheduledIdeaId: string, request) {
+    return mockApi.updatePlan(spaceId, scheduledIdeaId, request)
+  },
   getFolders: mockApi.getFolders,
   async createFolder(spaceId: string, request) {
     return mockApi.createFolder(spaceId, request)
@@ -43,5 +46,8 @@ export const mockClient: DataClient = {
   },
   getPlan: mockApi.getPlan,
   getHistory: mockApi.getSpaceHistory,
+  createHistoryEntry: mockApi.createHistoryEntry,
+  getComments: mockApi.getComments,
+  addComment: mockApi.addComment,
   getRecommendations: mockApi.getRecommendations,
 }

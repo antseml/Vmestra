@@ -12,6 +12,8 @@ export const API_CONTRACT_NOTES = {
     'POST /api/spaces/{spaceId}/ideas/{ideaId}/archive',
     'POST /api/spaces/{spaceId}/ideas/{ideaId}/restore',
     'POST /api/spaces/{spaceId}/ideas/{ideaId}/plans',
+    'GET /api/spaces/{spaceId}/ideas/{ideaId}/comments',
+    'POST /api/spaces/{spaceId}/ideas/{ideaId}/comments',
     'GET /api/spaces/{spaceId}/folders',
     'POST /api/spaces/{spaceId}/folders',
     'GET /api/spaces/{spaceId}/tags',
@@ -21,7 +23,9 @@ export const API_CONTRACT_NOTES = {
     'POST /api/spaces/{spaceId}/categories',
     'PATCH /api/spaces/{spaceId}/categories/{categoryId}',
     'GET /api/spaces/{spaceId}/plan?from={isoDateTime}&to={isoDateTime}',
+    'PATCH /api/spaces/{spaceId}/plan/{scheduledIdeaId}',
     'GET /api/spaces/{spaceId}/history',
+    'POST /api/spaces/{spaceId}/history',
   ],
   futureReadOptimizedSet: [
     'GET /api/spaces/{spaceId}/overview',
@@ -76,8 +80,9 @@ export type UpdateIdeaRequest = {
 export type UpdateScheduledIdeaRequest = {
   state?: ApiScheduledIdeaState
   startsAt?: string
+  endsAt?: string | null
   participantUserIds?: string[]
-  note?: string
+  note?: string | null
 }
 
 export type ScheduleIdeaRequest = {
@@ -93,6 +98,18 @@ export type CreateNamedItemRequest = {
 
 export type CreateTagRequest = CreateNamedItemRequest & {
   source?: ApiTagSource
+}
+
+export type CreateHistoryEntryRequest = {
+  ideaId?: string | null
+  title: string
+  publicNote?: string | null
+  privateNote?: string | null
+  happenedAt?: string | null
+}
+
+export type CreateCommentRequest = {
+  text: string
 }
 
 export type UpdateTagRequest = {

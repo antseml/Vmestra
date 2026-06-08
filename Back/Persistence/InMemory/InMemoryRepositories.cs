@@ -461,7 +461,7 @@ public sealed class InMemoryPlanningRepository(InMemoryVmestraDatabase database,
         }
     }
 
-    public ScheduledIdea? UpdateSchedule(Guid spaceId, Guid scheduledIdeaId, UpdateScheduledIdeaRequest request)
+    public ScheduledIdea? UpdateSchedule(Guid spaceId, Guid scheduledIdeaId, UpdateScheduledIdeaRequest request, Guid updatedByUserId)
     {
         lock (database.Gate)
         {
@@ -490,6 +490,7 @@ public sealed class InMemoryPlanningRepository(InMemoryVmestraDatabase database,
             if (updated.State is ScheduledIdeaState.Canceled)
             {
                 SetIdeaStateByFuturePlans(spaceId, updated.IdeaId, now);
+                history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(updated.IdeaId, updatedByUserId, "Идея отменена", null, null, now), updatedByUserId);
             }
             else if (request.State is ScheduledIdeaState.Moved)
             {
@@ -501,14 +502,21 @@ public sealed class InMemoryPlanningRepository(InMemoryVmestraDatabase database,
                 {
                     SetIdeaStateByFuturePlans(spaceId, updated.IdeaId, now);
                 }
+
+                history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(updated.IdeaId, updatedByUserId, "Идея перенесена", null, null, updated.StartsAt), updatedByUserId);
             }
             else if (updated.State is ScheduledIdeaState.Experienced)
             {
                 SetIdeaState(spaceId, updated.IdeaId, IdeaState.Experienced, now);
+                history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(updated.IdeaId, updatedByUserId, "Идея состоялась", null, null, now), updatedByUserId);
             }
             else if (updated.State is ScheduledIdeaState.Planned && updated.StartsAt > now)
             {
                 SetIdeaState(spaceId, updated.IdeaId, IdeaState.Planned, now);
+                if (request.StartsAt is not null || request.EndsAt is not null || request.ParticipantUserIds is not null || request.Note is not null)
+                {
+                    history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(updated.IdeaId, updatedByUserId, "Идея перенесена", null, null, updated.StartsAt), updatedByUserId);
+                }
             }
 
             return updated;

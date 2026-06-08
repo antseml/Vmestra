@@ -2,7 +2,8 @@
 import { AuthRequiredError, authClient, getAuthToken, handleUnauthorized } from './authClient'
 import type { DataClient } from './dataClient'
 import type { CreateNamedItemRequest, CreateSpaceRequest, CreateTagRequest, ScheduleIdeaRequest, UpdateIdeaRequest } from './apiContract'
-import type { Folder, HistoryEntry, Idea, Member, Recommendation, Space, SpaceKind } from '../mock/vmestraData'
+import type { CreateCommentRequest, CreateHistoryEntryRequest, UpdateScheduledIdeaRequest } from './apiContract'
+import type { Comment, Folder, HistoryEntry, Idea, Member, Recommendation, Space, SpaceKind } from '../mock/vmestraData'
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? ''
 
@@ -100,6 +101,15 @@ type ApiHistoryEntry = {
   note?: string | null
   privateNote?: string | null
   happenedAt: string
+}
+
+type ApiComment = {
+  id: string
+  spaceId: string
+  ideaId: string
+  createdByUserId: string
+  text: string
+  createdAt: string
 }
 
 type SpaceReferenceData = {
@@ -223,6 +233,7 @@ function mapIdea(idea: ApiIdea, refs: IdeaReferenceData): Idea {
   return {
     id: idea.id,
     spaceId: idea.spaceId,
+    planId: planned?.id,
     title: idea.title ?? idea.text ?? FALLBACK_IDEA_TITLE,
     note: idea.description ?? '',
     folder: folder?.name ?? FALLBACK_FOLDER,
@@ -244,6 +255,7 @@ function mapScheduledIdea(schedule: ApiScheduledIdea, ideasById: Map<string, Api
 
   return {
     ...mapIdea(idea, refs),
+    planId: schedule.id,
     status: 'planned',
     plannedFor: schedule.startsAt,
     participants: schedule.participantUserIds,
@@ -258,6 +270,17 @@ function mapHistory(entry: ApiHistoryEntry): HistoryEntry {
     date: entry.happenedAt.slice(0, 10),
     note: entry.publicNote ?? entry.note ?? '',
     privateNote: entry.privateNote ?? undefined,
+  }
+}
+
+function mapComment(comment: ApiComment): Comment {
+  return {
+    id: comment.id,
+    spaceId: comment.spaceId,
+    ideaId: comment.ideaId,
+    authorId: comment.createdByUserId,
+    text: comment.text,
+    createdAt: comment.createdAt,
   }
 }
 
@@ -293,6 +316,26 @@ function buildIdeasPath(spaceId: string, options?: { includeArchived?: boolean }
 
 async function mapSingleIdea(spaceId: string, idea: ApiIdea) {
   const [refs, plan] = await Promise.all([getSpaceReferenceData(spaceId), getScheduledIdeas(spaceId)])
+  return mapIdea(idea, { ...refs, plan })
+}
+
+async function mapScheduleUpdate(spaceId: string, schedule: ApiScheduledIdea) {
+  const [idea, refs, plan] = await Promise.all([
+    request<ApiIdea>(`/api/spaces/${spaceId}/ideas/${schedule.ideaId}`),
+    getSpaceReferenceData(spaceId),
+    getScheduledIdeas(spaceId),
+  ])
+
+  if (schedule.state === 'Planned') {
+    return {
+      ...mapIdea(idea, { ...refs, plan }),
+      planId: schedule.id,
+      status: 'planned' as const,
+      plannedFor: schedule.startsAt,
+      participants: schedule.participantUserIds,
+    }
+  }
+
   return mapIdea(idea, { ...refs, plan })
 }
 
@@ -429,6 +472,15 @@ export const backendClient: DataClient = {
     if (!mappedIdea) throw new ApiRequestError(404, 'Не удалось найти запланированную идею.')
     return mappedIdea
   },
+  async updatePlan(spaceId: string, scheduledIdeaId: string, requestBody: UpdateScheduledIdeaRequest) {
+    return mapScheduleUpdate(
+      spaceId,
+      await request<ApiScheduledIdea>(`/api/spaces/${spaceId}/plan/${scheduledIdeaId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(requestBody),
+      }),
+    )
+  },
   async getFolders(spaceId: string) {
     const [folders, ideas] = await Promise.all([
       request<ApiFolder[]>(`/api/spaces/${spaceId}/folders`),
@@ -484,6 +536,25 @@ export const backendClient: DataClient = {
   },
   async getHistory(spaceId: string) {
     return (await request<ApiHistoryEntry[]>(`/api/spaces/${spaceId}/history`)).map(mapHistory)
+  },
+  async createHistoryEntry(spaceId: string, requestBody: CreateHistoryEntryRequest) {
+    return mapHistory(
+      await request<ApiHistoryEntry>(`/api/spaces/${spaceId}/history`, {
+        method: 'POST',
+        body: JSON.stringify(requestBody),
+      }),
+    )
+  },
+  async getComments(spaceId: string, ideaId: string) {
+    return (await request<ApiComment[]>(`/api/spaces/${spaceId}/ideas/${ideaId}/comments`)).map(mapComment)
+  },
+  async addComment(spaceId: string, ideaId: string, requestBody: CreateCommentRequest) {
+    return mapComment(
+      await request<ApiComment>(`/api/spaces/${spaceId}/ideas/${ideaId}/comments`, {
+        method: 'POST',
+        body: JSON.stringify(requestBody),
+      }),
+    )
   },
   async getRecommendations() {
     return [] satisfies Recommendation[]

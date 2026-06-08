@@ -376,7 +376,7 @@ public sealed class PostgresPlanningRepository(VmestraDbContext db, IHistoryRepo
         return GetSchedule(spaceId, null, null).Single(item => item.Id == scheduled.Id);
     }
 
-    public ScheduledIdea? UpdateSchedule(Guid spaceId, Guid scheduledIdeaId, UpdateScheduledIdeaRequest request)
+    public ScheduledIdea? UpdateSchedule(Guid spaceId, Guid scheduledIdeaId, UpdateScheduledIdeaRequest request, Guid updatedByUserId)
     {
         var scheduled = db.ScheduledIdeas.Include(item => item.Participants).SingleOrDefault(item => item.SpaceId == spaceId && item.Id == scheduledIdeaId);
         if (scheduled is null) return null;
@@ -406,18 +406,26 @@ public sealed class PostgresPlanningRepository(VmestraDbContext db, IHistoryRepo
             {
                 SetIdeaStateByFuturePlans(spaceId, scheduled.IdeaId, scheduled.Id, scheduled.State, scheduled.StartsAt, now);
             }
+
+            history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(scheduled.IdeaId, updatedByUserId, "Идея перенесена", null, null, scheduled.StartsAt), updatedByUserId);
         }
         else if (scheduled.State is ScheduledIdeaState.Canceled)
         {
             SetIdeaStateByFuturePlans(spaceId, scheduled.IdeaId, scheduled.Id, scheduled.State, scheduled.StartsAt, now);
+            history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(scheduled.IdeaId, updatedByUserId, "Идея отменена", null, null, now), updatedByUserId);
         }
         else if (scheduled.State is ScheduledIdeaState.Experienced)
         {
             SetIdeaState(spaceId, scheduled.IdeaId, IdeaState.Experienced, now);
+            history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(scheduled.IdeaId, updatedByUserId, "Идея состоялась", null, null, now), updatedByUserId);
         }
         else if (scheduled.State is ScheduledIdeaState.Planned && scheduled.StartsAt > now)
         {
             SetIdeaState(spaceId, scheduled.IdeaId, IdeaState.Planned, now);
+            if (request.StartsAt is not null || request.EndsAt is not null || request.ParticipantUserIds is not null || request.Note is not null)
+            {
+                history.CreateHistoryEntry(spaceId, new CreateHistoryEntryRequest(scheduled.IdeaId, updatedByUserId, "Идея перенесена", null, null, scheduled.StartsAt), updatedByUserId);
+            }
         }
 
         db.SaveChanges();

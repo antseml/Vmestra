@@ -570,6 +570,7 @@ time {
   gap: 16px;
   padding: 16px;
   box-shadow: none;
+  flex-wrap: wrap;
 }
 
 .idea-card.archived {
@@ -679,6 +680,63 @@ time {
   max-width: 140px;
   font-size: 12px;
   text-align: right;
+}
+
+.plan-card-actions,
+.comments-panel {
+  flex-basis: 100%;
+  width: 100%;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.plan-card-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.plan-card-actions > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.plan-card-actions strong {
+  color: var(--text);
+}
+
+.plan-move-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.plan-move-form input:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+.comments-box {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.comment-row {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.comment-row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.comment-row p {
+  margin: 4px 0 0;
 }
 
 .recommendation-list {
